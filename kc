@@ -1,0 +1,8 @@
+#!/bin/sh
+# kb-s usa un CARGO_HOME proprio: il pacchetto globale e' condiviso con altre
+# sessioni su questa macchina e il suo file lock serializza build non correlati.
+# Usare questo wrapper invece di `cargo` e' il modo per non bloccarsi.
+set -e
+ROOT=$(cd "$(dirname "$0")" && pwd)
+export CARGO_HOME="$ROOT/.cargo"
+exec cargo "$@"

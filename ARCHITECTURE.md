@@ -174,6 +174,59 @@ portabilità normativo che esista in Italia e `kb-s` lo implementa).
 LTI 1.3 in uscita verso l'LMS che la scuola ha già. Non è opzionale: una scuola non può adottare un
 sistema che le impedisce di entrare nel registro elettronico.
 
+## D14 · Il formato di authoring è HTML, non markdown
+
+Il materiale di studio è **HTML self-contained**, non markdown. Il markdown è tollerato in
+ingresso (per il materiale preesistente) e poi convertito, ma non è il formato nativo: la ragione
+è che l'unità di studio non è un testo, e un file HTML può contenere un contratto eseguibile, un
+esercizio verificabile e una scena 3D **nello stesso documento**.
+
+`kbs-doc` tratta quindi l'HTML come **lingua madre**: il front-matter è `<meta>`, il contratto è
+il template `kb-kbprompt`, e la validazione (D7) guarda l'HTML risultante, non una sintassi
+intermedia. Il markdown iningresso passa attraverso un convertitore e il risultato è un artifact
+HTML come gli altri, **con un flag che dichiara la provenienza**: un artifact convertito non ha
+la stessa garanzia di uno scritto in HTML, e il lettore deve poterlo sapere.
+
+## D15 · three.js: vendorizzato, mai da CDN
+
+Se una scuola usa `kb-s`, la sua classe non ha garanzia di rete. Un `<script src="https://cdn…">`
+non è un dettaglio: è una rotta dati che esce dal perimetro, un punto di fallimento a rialbero,
+e un ostacolo all'esercizio offline.
+
+Quindi three.js è **vendorizzato nel repository**, servito dal binario di `kb-s`, caricato da
+`/three/three.module.js`. **Nessun artifact può referenziare un CDN esterno**: è una regola del
+validatore, non una convenzione, e la sua violazione impedisce la pubblicazione — perché un
+artifact che chiama fuori non è verificabile (D6) né riproducibile (D11).
+
+Dimensione: il runtime non compresso supera abbondantemente 1 MB, e un artifact può averne
+bisogno. Perciò il vendoring è di `three.module.js` **minimizzato e gzippato**, servito con
+`Cache-Control` lungo ed `ETag`, referenziato per percorso. Il `build` di `kbs-doc` riporta il
+peso del runtime come **voce del budget**, non silenziosamente.
+
+### D15.1 · Il contratto 3D: che cosa rende affidabile una scena
+
+Una scena 3D è il medium più capace e il più ingannevole che abbiamo. Il corpus ha già misurato
+che l'estrazione di relazioni da una figura è il punto debole dell'intero dominio (F1 0,74 per i
+nodi, 0,14–0,28 per gli archi, 0,07 sulle relazioni N-arie) e che **i nodi vengono prima e gli
+archi dopo**. In 2D questo significa che una mappa generata è più abbondante e non migliore.
+
+In 3D la cosa cambia, ma solo se **l'interazione è il rapporto**: lo studente non guarda la
+scena, la manipola. Le quattro regole che rendono la scena degna di fiducia:
+
+1. **Ogni nodo e ogni arco dichiarato corrisponde a una `Claim`**, legata a uno span. Un oggetto
+   3D senza claim non entra nell'indice condiviso: resta speculativo, come tutto il resto della
+   strada percorso-speculativo (D4).
+2. **Nessuna risposta visibile nella scena.** Il test `no-solution-leak` (D8) vale anche per 3D:
+   il `GUARDIAN` non può essere solo un vincolo testuale mentre la risposta è un oggetto
+   ruotabile. Se la scena contiene la soluzione, l'unità non pubblica — come per il testo.
+3. **Il guadagno pedagogico è l'interazione, non la resa.** Una scena 3D che sostituisce un
+   diagramma 2D con uno 3D non aggiunge nulla e costa banda. La prova che vale è che
+   l'interazione cambi l'apprendimento, e si registra come **tempo di manipolazione** e
+   **numero di relazioni che lo studente ha corretto** — non come tempo sul compito.
+4. **Il rendering è un effetto, il contenuto è il dato.** La scena si può re-renderizzare,
+   cambiare camera e luce, e l'oggetto sottostante non cambia. Se la scena è l'unica
+   rappresentazione, un aggiornamento del renderer cancella il materiale dello studente.
+
 ---
 
 ## Cosa `kb-s` non è

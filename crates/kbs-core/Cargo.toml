@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "TODO"
+description = "Contratto di dominio di kb-s: argomenti, stati, provenienza, tre registri, visibilita' per relazione"
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

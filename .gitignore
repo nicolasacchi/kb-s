@@ -1,4 +1,5 @@
-target/
+/target
 *.sqlite
 *.sqlite-*
 .kbs/
+/.cargo/
