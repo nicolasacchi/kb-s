@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "TODO"
+description = "Esercizi parametrizzati con seed e verificatore deterministico: l'integrita' accademica per costruzione (D8)"
 
 [dependencies]
+kbs-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
