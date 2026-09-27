@@ -1,5 +1,9 @@
 [package]
 name = "kbs-intake"
+# I binari sono dichiarati esplicitamente piu' in basso. Senza questo, cargo
+# inferisce un binario `kbs-intake` da src/main.rs, che non esiste, e la build
+# fallisce con «main function not found».
+autobins = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
