@@ -85,7 +85,10 @@ mod tests {
     #[test]
     fn lo_stesso_testo_da_sempre_lo_stesso_id() {
         let t = "Equivoci comuni sul concetto di limite";
-        assert_eq!(kebab(t), kebab(t));
+        // Confrontare `kebab(t)` con sé stesso non dimostra niente: fallirebbe
+        // solo se la funzione non fosse pura. Quello che regge è il valore
+        // pinnato qui sotto: è la stabilità dell'id, il criterio del
+        // repository di ricerca.
         assert_eq!(kebab(t), "equivoci-comuni-sul-concetto-di-limite");
     }
 

@@ -16,7 +16,44 @@ codice. Un progetto che non elenca i propri buchi li ripete dentro se stesso.
 
 ### Aggiunto
 
-- Nessuna modifica non pubblicata. La prima release è `0.1.0`.
+- La **seconda strada di D4** nel banco di prova, esercitata contro il
+  processo. Il controllo `pipeline.indicizzazione.solo_i_ratificati_sono_citabili`
+  confrontava l'indice della pipeline con una tabella Rust che dichiarava una
+  ratifica: un input che non esiste in nessun file e in nessun database,
+  perché una pipeline che indicizza una cartella non firma niente. Il
+  controllo è stato **sostituito, non allentato**, da quattro controlli che
+  eseguono gli atti che una scuola percorre: `kbs verify` su un database
+  vuoto (l'indice non cita niente), `kbs promote` su ciò che la tabella
+  dichiara ratificato di fresco (l'atto del docente, e l'unico modo in cui una
+  ratifica entra), `kbs verify` sullo stesso database (l'indice cita
+  esattamente il gruppo promosso), e la stessa strada su una copia con il
+  contratto di un item riscritto sotto la ratifica già firmata (l'item esce
+  per `stale-ratification`, e non esce nessun altro). **La ratifica superata
+  è così esercitata end-to-end per la prima volta**: prima esisteva solo come
+  riga di tabella e come unit test di `kbs-core`.
+- `kbs_fixtures::adapter::Pipeline::sequenza`, e con essa `Atto`, `Session` ed
+  `Eseguito`: il banco esegue più atti **sullo stesso database**, ciascuno con
+  la sua radice. Il confine di processo non è cambiato — il banco non chiama
+  funzioni interne, chiama il binario — ed è la stessa interfaccia che D10.2
+  dichiara come «la CLI come protocollo».
+
+### Corretto
+
+- `kbs-doc` — `ContractReport::require` non fa più panic su uno stato che il
+  tipo consente. «Un contratto troncato non è eseguibile» è una disgiunzione, e
+  il membro «troncato» vale senza il membro «errori»: un rapporto che si
+  dichiara troncato e non registra l'errore che lo rende non eseguibile —
+  stato che `inspect` non produce, ma che è raggiungibile da fuori perché tutti
+  i campi sono pubblici e il rapporto deriva `Deserialize` — faceva scattare un
+  `expect` la cui giustificazione era, parola per parola, quell'affermazione
+  che lo rende possibile. Ora l'errore è per valore e, in quello stato, nomina
+  il troncamento (`OverCap`), che è la ragione che `executable` nega.
+- `kbs-doc` — due commenti che citavano test **inesistenti**: in `contract`, il
+  riferimento alla regola di D7, e in `parser`, quello al caso in cui il
+  contratto non è testo del documento. Entrambi ora citano il test che esiste
+  e dimostra la frase. In più, `slug` non confronta più `kebab(t)` con sé
+  stesso: la riga era decorazione e il test è rimasto quello che pinna il
+  valore dello slug.
 
 ## [0.1.0] — 2026-09-26
 

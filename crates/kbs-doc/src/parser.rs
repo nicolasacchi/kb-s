@@ -16,7 +16,7 @@
 //! estrae testo con regole diverse dagli altri è un campo che un giorno
 //! racconterà una storia diversa dal documento. Il test
 //! `un_h2_in_un_template_non_e_una_intestazione_del_documento` copre esattamente
-//! quel baco, e `il_contratto_non_e_testo_del_documento` copre il caso che
+//! quel baco, e `il_contratto_viene_preso_dallo_slot_esatto` copre il caso che
 //! riguarda questo crate.
 //!
 //! # Cosa non fa

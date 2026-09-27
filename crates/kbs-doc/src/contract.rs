@@ -6,7 +6,7 @@
 //! > Un contratto troncato è leggibile ma non eseguibile.
 //!
 //! Non è un commento: è [`ContractReport::executable`], ed è un **test**
-//! (`un_contratto_troppo_lungo_non_e_eseguibile_anche_se_la_testa_ha_otto_sezioni`).
+//! (`contratto_troppo_lungo_e_troncato_e_non_eseguibile`).
 //!
 //! # Il caso che un validatore ingenuo passa
 //!
@@ -183,14 +183,24 @@ impl ContractReport {
     }
 
     /// Il contratto eseguibile, o l'errore che lo ha negato.
-    pub fn require(&self) -> Result<&ContractReport, &ContractError> {
+    ///
+    /// L'errore è per valore, non per riferimento: la ragione del rifiuto non
+    /// è sempre una voce di `errors` — un rapporto che si dichiara troncato e
+    /// non registra l'errore che lo rende non eseguibile è uno stato che
+    /// `inspect` non produce ma che il tipo consente (tutti i campi sono
+    /// pubblici e il rapporto deriva `Deserialize`), e in quello stato la
+    /// ragione è il troncamento stesso.
+    pub fn require(&self) -> Result<&ContractReport, ContractError> {
         if self.executable() {
-            Ok(self)
-        } else {
-            Err(self
-                .first_error()
-                .expect("non eseguibile implica almeno un errore: o troncato, o errori"))
+            return Ok(self);
         }
+        Err(match self.first_error() {
+            Some(e) => e.clone(),
+            // «o troncato, o errori»: la regola è una disgiunzione, e il primo
+            // membro vale senza il secondo. Qui il rifiuto nomina il
+            // troncamento, che è ciò che [`Self::executable`] nega.
+            None => ContractError::OverCap { bytes: self.total_bytes, cap: HARD_CAP },
+        })
     }
 
     pub fn section(&self, name: &str) -> Option<&SectionReport> {
@@ -335,10 +345,10 @@ pub fn inspect(text: &str) -> ContractReport {
 /// chi non ha bisogno del rapporto.
 pub fn require(text: &str) -> Result<ContractReport, ContractError> {
     let report = inspect(text);
-    match report.require() {
-        Ok(_) => Ok(report),
-        Err(e) => Err(e.clone()),
+    if let Err(e) = report.require() {
+        return Err(e);
     }
+    Ok(report)
 }
 
 /// Taglia su un confine di carattere, come fa `kb` per il prompt.
@@ -594,5 +604,40 @@ mod tests {
         assert!(!r.executable());
         assert_eq!(r.errors.len(), 8);
         assert!(r.total_bytes == 0);
+    }
+
+    // ── Lo stato che `inspect` non produce, e che il tipo consente ───────────
+    // `ContractReport` ha tutti i campi pubblici e deriva `Deserialize`: lo
+    // stato «troncato e nessun errore» si raggiunge da fuori, e `require()` su
+    // quello stato è una `Result` che dichiara di non poter fallire. I due
+    // test qui sotto sono i due membri della disgiunzione della regola.
+
+    #[test]
+    fn un_rapporto_troncato_senza_errori_risponde_il_troncamento_e_non_fa_panic() {
+        let r: ContractReport = serde_json::from_str(
+            r#"{"stored_text":"","total_bytes":0,"truncated":true,
+                "sections":[],"errors":[],"warnings":[]}"#,
+        )
+        .expect("il rapporto è deserializzabile: è ciò che fa la persistenza");
+        assert!(!r.executable(), "troncato vuol dire non eseguibile, errori o no");
+        let e = r.require().expect_err("un contratto troncato non è eseguibile");
+        assert!(matches!(e, ContractError::OverCap { .. }), "{e:?}");
+        assert!(e.to_string().contains("troncato"), "l'errore nomina il troncamento: {e}");
+    }
+
+    #[test]
+    fn un_rapporto_non_troncato_con_errori_risponde_il_primo_errore() {
+        let primo =
+            ContractError::MissingSection { name: "LIMITE".into(), all_sections: section_names() };
+        let r = ContractReport {
+            stored_text: "## GUARDIAN".into(),
+            total_bytes: 11,
+            truncated: false,
+            sections: vec![],
+            errors: vec![primo.clone(), ContractError::EmptySection { name: "LIMITE".into() }],
+            warnings: vec![],
+        };
+        assert!(!r.executable());
+        assert_eq!(r.require().expect_err("manca LIMITE"), primo);
     }
 }
