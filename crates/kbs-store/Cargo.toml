@@ -6,6 +6,18 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "TODO"
+description = "Persistenza SQLite di kb-s: schema, migrazioni, predicato di visibilità, ricerca FTS5"
 
 [dependencies]
+kbs-core = { workspace = true }
+kbs-verify = { workspace = true }
+refinery = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
