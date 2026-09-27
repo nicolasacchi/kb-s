@@ -9,7 +9,7 @@
 //! verificare che i file committati siano quelli che la tabella descrive.
 
 use crate::families::Family;
-use crate::spec::{InstanceSpec, SceneEdge, SceneNode, Spec};
+use crate::spec::{ClaimSpec, EmittenteSpec, InstanceSpec, OriginSpec, SceneEdge, SceneNode, Spec};
 use kbs_core::{Millis, PublicationState};
 use serde_json::{json, Map, Value};
 
@@ -121,6 +121,12 @@ pub fn artifact(s: &Spec) -> String {
         "<meta name=\"kb-origin\" content=\"{}\">\n",
         s.origine.label()
     ));
+    // D10: l'origine `generated` porta il suo lock, `derived` porta il suo
+    // sorgente. È l'unico posto in cui il lock entra in un artifact, e quindi
+    // l'unico posto in cui può mancare: una tabella che dichiara una
+    // generazione e una resa che non ne scrive il record è un diario.
+    meta_di_origine(s, &mut out);
+
     if let Some(u) = s.riferimento_esterno {
         // L'attributo dichiara il riferimento *anche se l'artifact non lo usa*:
         // è una dichiarazione di dipendenza, e dichiararla è il primo passo per
@@ -146,21 +152,24 @@ pub fn artifact(s: &Spec) -> String {
     for p in s.paragrafi {
         out.push_str(&format!("<p>{}</p>\n", esc(p)));
     }
+    // Le claim si dichiarano nella convenzione che `kbs-doc` legge: un elemento
+    // con `data-claim` (il fatto atomico), `data-claim-id` (l'identità) e
+    // `data-claim-span` (l'id dello span che la sostiene). I tre campi restano
+    // separati perché lo span deve sopravvivere a un cambio di parola nella
+    // claim: è la ragione per cui sono tre attributi e non uno.
+    //
+    // `data-stato` e `data-claim-emitter` sono la dichiarazione dell'autore, che
+    // il lettore del formato non può ricavare e `kbs_intake` legge. Una claim
+    // senza span viene dichiarata `unciteable` e senza `data-claim-span`: è la
+    // forma che D6 vuole nel registro, e ometterla sarebbe cancellare l'errore
+    // invece di registrarlo.
     for c in s.claims {
-        if let (Some(ancora), Some(testo)) = (c.ancora, c.testo_span) {
-            out.push_str(&format!(
-                "<p class=\"claim\"><span id=\"{}\" data-claim=\"{}\" data-stato=\"{}\">{}</span></p>\n",
-                esc(&ancora),
-                esc(c.id),
-                claim_stato(c.stato),
-                esc(testo)
-            ));
-            out.push_str(&format!(
-                "<p class=\"claim-nota\">Affermazione <code>{}</code>: {}</p>\n",
-                esc(c.id),
-                esc(c.testo)
-            ));
-        }
+        out.push_str(&claim(c));
+        out.push_str(&format!(
+            "<p class=\"claim-nota\">Affermazione <code>{}</code>: {}</p>\n",
+            esc(c.id),
+            esc(c.testo)
+        ));
     }
     out.push_str(&corpo_di_famiglia(s));
     if s.carica_three_locale || s.riferimento_esterno.is_some() {
@@ -184,6 +193,117 @@ pub fn artifact(s: &Spec) -> String {
     out.push_str("</template>\n");
     out.push_str("</body>\n</html>\n");
     out
+}
+
+/// Una claim dichiarata, come `kbs-doc` la legge.
+///
+/// La funzione è separata da `artifact` perché è l'unica forma in cui una
+/// claim entra in un artifact: tenere insieme le due cose significa che il
+/// giorno in cui la convenzione cambia il posto da cambiare è uno solo.
+fn claim(c: &ClaimSpec) -> String {
+    let emittente = match c.emittente {
+        EmittenteSpec::Docente { by } => format!("teacher:person_{by:04}"),
+        EmittenteSpec::Contenuto => "content".to_string(),
+        EmittenteSpec::DaLavoro { osservazione } => format!("work:{osservazione}"),
+    };
+    let (ancora, testo_span) = match (c.ancora, c.testo_span) {
+        (Some(a), Some(t)) => (Some(a), Some(t)),
+        (None, None) => (None, None),
+        // La tabella non può dichiarare un'ancora senza testo dello span:
+        // `corpus.ogni_claim_con_span_ha_la_sua_ancora_nel_testo` lo rifiuta
+        // prima, e qui il caso non è raggiungibile. Un `panic!` in un renderer
+        // sarebbe una maniera costosa di dire la stessa cosa, quindi la
+        // combinazione non viene resa e il controllo resta là dov'è.
+        _ => return String::new(),
+    };
+    let mut out = String::from("<p class=\"claim\"");
+    out.push_str(&format!(" data-claim=\"{}\"", esc(c.testo)));
+    out.push_str(&format!(" data-claim-id=\"{}\"", esc(c.id)));
+    if let Some(a) = ancora {
+        out.push_str(&format!(" data-claim-span=\"{}\"", esc(a)));
+    }
+    out.push_str(&format!(" data-stato=\"{}\"", claim_stato(c.stato)));
+    out.push_str(&format!(" data-claim-emitter=\"{}\"", esc(&emittente)));
+    out.push('>');
+    if let (Some(a), Some(t)) = (ancora, testo_span) {
+        out.push_str(&format!("<span id=\"{}\">{}</span>", esc(a), esc(t)));
+    }
+    out.push_str("</p>\n");
+    out
+}
+
+/// I `<meta>` che dichiarano il **model lock** di un item generato (D10).
+///
+/// Sono cinque, non quattro: ai quattro campi del lock si aggiunge
+/// `kb-lock-at`, che è il momento della generazione. Senza i quattro campi non
+/// c'è un record, c'è una promessa; e un record senza quando è successo non
+/// distingue due generazioni dello stesso prompt sullo stesso corpus, che sono
+/// due eventi diversi.
+///
+/// La funzione è pubblica e serve anche a `crate::corpus`, che deve costruire
+/// lo stesso `ModelLock` che il file dichiara: due scritture della stessa cosa
+/// in due posti sono due fonti, e le due fonti divergono alla prima ricorrenza.
+pub fn lock_di(s: &Spec) -> kbs_core::ModelLock {
+    let (model, prompt_hash, generator) = match s.origine {
+        OriginSpec::Generated { model, prompt_hash, generator, .. } => (model, prompt_hash, generator),
+        // Non succede: la si chiama solo su un item `generated`, e lo dice il
+        // chiamante. Un `panic!` in un renderer sarebbe peggio che un valore
+        // dichiaratamente vuoto, quindi il caso di qui è un lock che non nomina
+        // nessuna generazione — che è esattamente ciò che non è.
+        _ => ("", "", ""),
+    };
+    kbs_core::ModelLock {
+        model_id: model.to_string(),
+        prompt_hash: prompt_hash.to_string(),
+        // L'hash del corpus **al momento della generazione**. Il banco non ha
+        // una cronologia delle generazioni, quindi dichiara un hash derivato
+        // dall'item e dall'epoca: è un valore che identifica una coppia
+        // (corpus, momento) e non un'altra, che è ciò che D11 chiede a un lock.
+        corpus_hash: crate::corpus::Corpus::hash_file(&format!("corpus-al-{}:{EPOCA}", s.rel)),
+        generator_version: generator.to_string(),
+        at: Millis(EPOCA),
+    }
+}
+
+
+/// I `<meta>` dell'origine, nell'ordine in cui il documento li dichiara.
+fn meta_di_origine(s: &Spec, out: &mut String) {
+    match s.origine {
+        OriginSpec::Generated { .. } => {
+            let l = lock_di(s);
+            out.push_str(&format!(
+                "<meta name=\"kb-lock-model\" content=\"{}\">\n",
+                esc(&l.model_id)
+            ));
+            out.push_str(&format!(
+                "<meta name=\"kb-lock-prompt\" content=\"{}\">\n",
+                esc(&l.prompt_hash)
+            ));
+            out.push_str(&format!(
+                "<meta name=\"kb-lock-corpus\" content=\"{}\">\n",
+                esc(&l.corpus_hash)
+            ));
+            out.push_str(&format!(
+                "<meta name=\"kb-lock-generator\" content=\"{}\">\n",
+                esc(&l.generator_version)
+            ));
+            out.push_str(&format!(
+                "<meta name=\"kb-lock-at\" content=\"{}\">\n",
+                l.at.0
+            ));
+        }
+        OriginSpec::Derived { from } => {
+            // `derived` senza il sorgente non è un'origine: è il caso che
+            // `kbs_intake` chiama `derived-without-source`. Dichiarare il
+            // sorgente è dichiarare da dove viene, ed è tutto ciò che
+            // l'artefatto può dire.
+            out.push_str(&format!(
+                "<meta name=\"kb-derived-from\" content=\"{}\">\n",
+                esc(from)
+            ));
+        }
+        OriginSpec::Human { .. } => {}
+    }
 }
 
 fn claim_stato(s: crate::spec::ClaimStatusKind) -> &'static str {
@@ -214,7 +334,7 @@ fn corpo_di_famiglia(s: &Spec) -> String {
                 .enumerate()
             {
                 out.push_str(&format!(
-                    "<p data-nodo=\"{}\" data-claim=\"{}\">{} {}{}</p>\n",
+                    "<p data-nodo=\"{}\" data-claim-id=\"{}\">{} {}{}</p>\n",
                     esc(node.id),
                     esc(node.claim),
                     n + 1,
@@ -229,7 +349,7 @@ fn corpo_di_famiglia(s: &Spec) -> String {
                 .iter()
             {
                 out.push_str(&format!(
-                    "<p data-arco=\"{}\" data-claim=\"{}\">{} — {} {}{}</p>\n",
+                    "<p data-arco=\"{}\" data-claim-id=\"{}\">{} — {} {}{}</p>\n",
                     esc(e.id),
                     esc(e.claim),
                     esc(e.da),

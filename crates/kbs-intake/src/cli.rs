@@ -558,8 +558,14 @@ fn generazioni(args: &[String]) -> Result<serde_json::Value> {
     let o = Opzioni::analizza(args)?;
     let store = apri(&o)?;
     let id = ArgumentId::from_rel_path(o.richiesta("arg")?);
+    // `generations_for` è gated: il registro delle generazioni non è un
+    // registro pubblico. Chi chiede le generazioni di un argomento è una
+    // persona che ha una relazione con quell'argomento, e non un ruoto che
+    // «sa» di generazioni: la domanda «ha il diritto di vederle?» ha una
+    // risposta sola, ed è `kbs_core::may_read`.
+    let by = persona(&o, "person")?;
     json(store
-        .generations_for(&id)?
+        .generations_for(&by, &id)?
         .iter()
         .map(|e| {
             serde_json::json!({

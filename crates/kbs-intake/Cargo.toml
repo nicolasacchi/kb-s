@@ -13,6 +13,7 @@ kbs-core.workspace = true
 kbs-store.workspace = true
 kbs-doc.workspace = true
 kbs-verify.workspace = true
+rusqlite = { workspace = true }
 scraper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

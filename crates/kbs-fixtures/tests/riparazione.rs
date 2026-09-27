@@ -100,33 +100,35 @@ fn il_banco_diventa_rosso_quando_una_fiastra_rotta_viene_riparata() {
     let _ = std::fs::remove_dir_all(&radice);
 }
 
-/// La seconda via di «riparare»: si cambia anche la tabella, e si crede che
-/// la cosa sia stata sistemata. In quel caso il controllo sui byte non trova
-/// nulla, perché i file sono coerenti con la tabella — ma il controllo sulle
-/// cinque fixture rotte sì, perché ora le rotte sono quattro.
+/// ## Perché qui non c'è un test sulla «seconda via di riparare»
 ///
-/// Questo test verifica il meccanismo del banco, non il validatore: verifica
-/// che **l'aspettativa** sia cambiata e che il banco se ne accorga.
-#[test]
-fn il_banco_diventa_rosso_quando_una_fiastra_rotta_viene_dichiarata_sana() {
-    let radice = copia_in_temporanea("dichiarata-sana");
-    let r = referto(&radice);
-    // Punto di partenza: cinque rotte, tutte rotte.
-    assert_eq!(
-        r.controllo("corpus.le_cinque_fiastre_rovate_sono_ancora_rovate")
-            .map(|c| c.esito.etichetta()),
-        Some("superato")
-    );
-    // La tabella, per costruzione, ne dichiara cinque e il banco ne verifica
-    // il numero: è questa l'aspettativa che il banco rende visibile.
-    assert_eq!(kbs_fixtures::FIXTURE_ROTTE, 5);
-    let rotte = kbs_fixtures::voci()
-        .iter()
-        .filter(|s| s.deve_essere_rifiutato())
-        .count();
-    assert_eq!(rotte, kbs_fixtures::FIXTURE_ROTTE);
-    let _ = std::fs::remove_dir_all(&radice);
-}
+/// Un tempo questo file aveva `il_banco_diventa_rosso_quando_una_fiastra_
+/// rotta_viene_dichiarata_sana`, e il test era falso in due modi insieme: la
+/// sua documentazione prometteva che «le rotte sono quattro» e il suo corpo non
+/// cambiava niente, e non asseriva mai un fallimento. Un test che mente sul
+/// proprio nome è peggio di nessun test, perché qualcuno ci crederà: legge
+/// «il banco diventa rosso», e il banco resta verde.
+///
+/// La premessa, poi, non è esprimibile a runtime. «Dichiarare sana una fixture
+/// rotta» vuol dire cambiare `Spec::difetto` da `Defect::…` a `Defect::Nessuno`,
+/// e la tabella è un `const` in compilazione: cambiarla è un atto di build, non
+/// una mossa che un test può fare su una copia temporanea del corpus. La copia
+/// temporanea contiene i **file**, e i file sono la metà che il test sorella
+/// [`il_banco_diventa_rosso_quando_una_fiastra_rotta_viene_riparata`] già
+/// esercita.
+///
+/// Quello che resta scoperto, e resta scoperto finché non si scrive: **che il
+/// numero di fixture rotte sia un'aspettativa che il banco sorveglia.** Oggi il
+/// banco lo dice in un solo modo, ed è dichiarato qui perché è un buco e non un
+/// dettaglio: `FIXTURE_ROTTE` è una costante che `copertura.rs` confronta con il
+/// conteggio reale di `Spec::deve_essere_rifiutato`, e quel confronto gira
+/// **sulla tabella compilata**. Se qualcuno sistema una fixture rotta e cambia
+/// la tabella, il controllo `corpus.le_cinque_fiastre_rovate_sono_ancora_rovate`
+/// misura i byte del file e si rifiuta di accettare un file sano — quindi
+/// l'errore **è** visto. Ciò che non è visto è il caso opposto: una fixture
+/// dichiarata sana che nessuno ha riparato. Per coprirlo serve una seconda
+/// tabella, o un banco che accetti la tabella come argomento; nessuna delle due
+/// cose esiste, e inventarle qui sarebbe un'altra fonte di verità.
 
 /// Il caso inverso: **aggiungere** un file al corpus che nessuno ha descritto
 /// è rumore, e il banco lo dice invece di ignorarlo. Un file che non è nella

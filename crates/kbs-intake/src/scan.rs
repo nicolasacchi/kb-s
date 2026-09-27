@@ -28,7 +28,8 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use kbs_core::{ClaimStatus, CourseId, Millis};
-use kbs_store::{Source, SourceStatus, Store};
+use kbs_store::{Person, Source, SourceStatus, Store};
+use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 
 use crate::corpus_hash::{self, CorpusHash};
@@ -53,6 +54,61 @@ fn read(path: &Path) -> Result<String> {
     std::fs::read_to_string(path).map_err(|source| Error::Io { path: path.to_path_buf(), source })
 }
 use crate::route::{self, Diagnostic, Receipt, Request, Route, Verdict};
+
+/// Le persone che il documento dice di aver emesso le claim.
+///
+/// Si legge `data-claim-emitter` e non `kb-origin`: l'origine nomina chi ha
+/// scritto il file, che è l'operatore della strada, mentre l'emittente nomina
+/// chi ha emesso **l'affermazione**, che è una domanda diversa e D6 la pone
+/// esplicitamente («chi ha dimostrato che cosa?»). Le due persone non
+/// coincidono quasi mai, e confonderle significa registrare ogni affermazione
+/// come se l'avesse scritta chi ha caricato il file.
+fn emittenti_dichiarati(source: &str) -> Vec<kbs_core::PersonId> {
+    let doc = Html::parse_document(source);
+    let sel = match Selector::parse("[data-claim-emitter]") {
+        Ok(s) => s,
+        // Il selettore è una costante di questo modulo: se non compila è un bug
+        // di compilazione, non un caso da gestire a runtime. Un `Err` qui
+        // produce un corpus senza persone, che è il guasto silenzioso che la
+        // funzione esiste per evitare, quindi si dice che non se ne sa niente.
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for el in doc.select(&sel) {
+        let Some(grezzo) = el.value().attr("data-claim-emitter") else {
+            continue;
+        };
+        // `teacher:<persona>` è l'unica forma che nomina una persona. Le altre
+        // (`work:<osservazione>`, `content`) nominano un'altra cosa, e
+        // registrarle come persone sarebbe inventare un essere umano.
+        if let Some(persona) = grezzo.trim().strip_prefix("teacher:") {
+            let persona = persona.trim();
+            if !persona.is_empty() {
+                out.push(kbs_core::PersonId(persona.to_string()));
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// La persona c'è già nel registro delle persone?
+///
+/// Una `SELECT` di servizio, come quella dei prerequisiti in `route`: qui non si
+/// chiede «posso vederla» (D5) ma «esiste già la riga», e sono due domande
+/// diverse. Serve perché `upsert_person` sovrascrive `display_name`: riscrivere
+/// il nome di una persona che esisteva già è cancellare il nome che qualcun
+/// altro aveva scritto.
+fn esiste_persona(store: &Store, id: &kbs_core::PersonId) -> Result<bool> {
+    let n: i64 = store
+        .conn()
+        .query_row("SELECT COUNT(*) FROM people WHERE id = ?1", [id.0.as_str()], |r| {
+            r.get(0)
+        })
+        .map_err(|e| Error::Store(kbs_store::Error::Sqlite(e)))?;
+    Ok(n > 0)
+}
 
 /// La diagnostica di un item, nella forma del banco.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,6 +229,17 @@ pub fn indexa(
     // riga di D12 — «la cartella del corso, e a che stato è» — ed è l'unico
     // posto in cui questa tabella si scrive da questa parte.
     let mut corsi: BTreeSet<CourseId> = BTreeSet::new();
+    // Le **persone** che la cartella dichiara, per la stessa ragione dei corsi e
+    // non per simmetria: `claims.emitted_by` referenzia `people`, e una claim
+    // che dice «emessa da Ada» non si puo' scrivere in un database in cui Ada
+    // non c'e'. Senza questa riga un corpus scritto da due persone fallisce con
+    // un `FOREIGN KEY constraint failed` che non nomina nessuno, e il referto
+    // non sa che cosa dire.
+    //
+    // Chi si registra e' un'altra cosa rispetto al nome: una persona che esiste
+    // gia' conserva il suo nome, perche' `upsert_person` sovrascrive
+    // `display_name` e un nome e' una cosa che qualcun altro puo' aver scritto.
+    let mut persone: BTreeSet<kbs_core::PersonId> = BTreeSet::new();
 
     // **Due passate, e non per ottimizzare.** La prima crea tutti gli argomenti,
     // la seconda scrive il grafo dei prerequisiti. Il motivo e' che un corpus e'
@@ -187,6 +254,9 @@ pub fn indexa(
     let mut richieste: Vec<(String, Request)> = Vec::new();
     for (rel, path) in &files {
         let sorgente = read(path)?;
+        for emittente in emittenti_dichiarati(&sorgente) {
+            persone.insert(emittente);
+        }
         for corso in corsi_dichiarati(&sorgente) {
             if corsi.insert(corso.clone()) {
                 store.register_source(&Source {
@@ -214,6 +284,25 @@ pub fn indexa(
                 source: sorgente,
             },
         ));
+    }
+
+    // Le persone si registrano **dopo** aver letto tutta la cartella e
+    // **prima** del primo argomento: `prepara` chiama `upsert_argument`, che
+    // non scrive claim, ma `completa` le chiama — e le claim sono la prima
+    // riga che porta `emitted_by`. Registrarle qui, e non in `prepara`, tiene
+    // la responsabilita' in un posto solo: la stessa riga che registra i corsi.
+    for persona in &persone {
+        if !esiste_persona(store, persona)? {
+            store.upsert_person(&Person {
+                id: persona.clone(),
+                // Un nome dichiarato, non un id. Il corpus non porta il nome e
+                // il sistema non indovina: quello che c'e' e' un placeholder
+                // esplicito, e un placeholder che si legge «operatore» non
+                // finge di essere un nome proprio.
+                display_name: "emittente dichiarato dal corpus".into(),
+                created_at: Millis::now(),
+            })?;
+        }
     }
 
     let mut scartate: Vec<(String, Error, PathBuf)> = Vec::new();

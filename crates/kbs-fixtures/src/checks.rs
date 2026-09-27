@@ -13,12 +13,13 @@
 //! * `pipeline.*` — proprietà **del sistema**, verificabili solo con la
 //!   pipeline. Falliscono se il sistema smette di comportarsi come dichiara.
 
-use crate::adapter::{Pipeline, PipelineError, Uscita};
+use crate::adapter::{self, Atto, Eseguito, Pipeline, PipelineError, Session, Uscita};
 use crate::contract::{self, Defect, HARD_CAP};
 use crate::corpus::{self, Corpus};
 use crate::families;
 use crate::spec::{ClaimStatusKind, Spec};
 use kbs_core::{PublicationState, Relation};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// L'esito di un controllo.
@@ -151,6 +152,209 @@ impl Config {
     }
 }
 
+/// La prova della **seconda strada di D4**: gli atti, e ciò che ne è uscito.
+///
+/// La prima strada di D4 è quella che il banco già faceva: una pipeline che
+/// indicizza una cartella e dice quali argomenti sono citabili. Ma da una
+/// cartella **non esce nessuna ratifica** — la ratifica è un atto separato, di
+/// una persona — quindi quella strada misurava un input che nel sistema non
+/// esiste: il banco costruiva un `Argument` con `ratified: Some(…)` che stava
+/// solo nella tabella Rust, e lo confrontava con un database in cui nulla era
+/// ratificato. Il confronto era destinato a fallire, e non perché il sistema
+/// sbagliasse.
+///
+/// La seconda strada è quella che una scuola percorre: si legge, si decide,
+/// si firma, si rilegge. Qui sotto ci sono i quattro atti, e ognuno ha un
+/// controllo con un nome suo.
+struct D4 {
+    /// `verify` sul database appena creato: nessuno ha ancora ratificato
+    /// niente, e quindi niente è citabile.
+    vuoto: Uscita,
+    /// `promote` per ogni item che la tabella dichiara ratificato di fresco.
+    promozioni: Vec<Eseguito>,
+    /// `verify` sullo **stesso** database, dopo le promozioni.
+    dopo: Uscita,
+    /// La copia, che è la seconda strada applicata a un contratto cambiato
+    /// sotto una ratifica viva.
+    copia: Copia,
+    /// La cartella della copia. Vive finché la prova vive: è ciò che tiene
+    /// i file su disco, e senza di lei la copia non esisterebbe più quando
+    /// i controlli la leggono.
+    _cartella: tempfile::TempDir,
+}
+
+/// La seconda strada sulla copia: promuovere, cambiare il contratto,
+/// verificare di nuovo.
+struct Copia {
+    /// `verify` sulla copia, prima di promuovere.
+    vuoto: Uscita,
+    /// `promote` sulla copia, per gli stessi item del corpus di lavoro.
+    promozioni: Vec<Eseguito>,
+    /// `verify` sulla copia **dopo** che il contratto di un item è stato
+    /// riscritto sotto la ratifica che quel docente aveva già firmato.
+    dopo_il_cambio: Uscita,
+    /// Il percorso relativo dell'item il cui contratto è stato riscritto.
+    rel_riscritto: String,
+}
+
+impl D4 {
+    /// Gli item che la seconda strada ha promosso, per percorso relativo.
+    fn promossi(&self, promozioni: &[Eseguito]) -> BTreeSet<String> {
+        promozioni
+            .iter()
+            .filter(|e| e.ok())
+            .filter_map(|e| e.atto.soggetto.clone())
+            .collect()
+    }
+
+    /// I percorsi relativi degli id che l'indice dichiara citabili. Un id che
+    /// il banco non conosce resta come è: un id sconosciuto è un problema
+    /// della pipeline e va detto per intero, non tradotto in silenzio.
+    fn citati(&self, uscita: &Uscita) -> BTreeSet<String> {
+        uscita
+            .index
+            .citable
+            .iter()
+            .map(|id| self.rel_di(id).unwrap_or_else(|| id.clone()))
+            .collect()
+    }
+
+    /// Il percorso relativo di un `ArgumentId`, se la tabella lo conosce.
+    fn rel_di(&self, id: &str) -> Option<String> {
+        self.corpus
+            .voci()
+            .iter()
+            .find(|s| corpus::id_di(s).as_str() == id)
+            .map(|s| s.rel.to_string())
+    }
+}
+
+impl<'a> Banco<'a> {
+    /// Le voci che la tabella dichiara ratificate di fresco: sono quelle su
+    /// cui il docente ha firmato sul contratto di oggi, e quindi le uniche su
+    /// cui ha senso chiedere alla porta di accettare.
+    fn fresche(&self) -> Vec<&'a Spec> {
+        self.corpus
+            .voci()
+            .iter()
+            .filter(|s| s.ratifica == RatificaSpec::Fresca)
+            .collect()
+    }
+
+    /// L'item su cui il banco riscrive il contratto sotto una ratifica viva.
+    ///
+    /// Le quattro condizioni sono tutte necessarie e sono dichiarate una per
+    /// una, perché ognuna esclude un caso in cui il caso non sarebbe quello:
+    /// una ratifica fresca (senza, non c'è ratifica da far superare), in uso
+    /// (un item archiviato non si promuove), senza difetto (un contratto rotto
+    /// uscirebbe dall'indice per un'altra ragione, e il banco misurerebbe la
+    /// validazione invece della ratifica), e con almeno un prerequisito (senza,
+    /// riscrivere il contratto non cambierebbe niente e l'hash resterebbe
+    /// quello).
+    fn item_riscrivibile(&self) -> Option<&'a Spec> {
+        self.corpus.voci().iter().find(|s| {
+            s.ratifica == RatificaSpec::Fresca
+                && s.stato == PublicationState::InCorso
+                && s.difetto == Defect::Nessuno
+                && !s.prerequisiti.is_empty()
+        })
+    }
+
+    /// I quattro atti della seconda strada di D4, eseguiti come processi.
+    ///
+    /// L'ordine è l'ordine in cui una scuola li farebbe, ed è dichiarato
+    /// perché un ordine diverso sarebbe un'altra verifica:
+    ///
+    /// 1. `verify` su un database vuoto — nessuno ha ratificato, e quindi
+    ///    l'indice non deve citare niente;
+    /// 2. `promote` su tutto ciò che la tabella dichiara ratificato di fresco
+    ///    — l'atto del docente, l'unico modo in cui una ratifica entra;
+    /// 3. `verify` sullo **stesso** database — e adesso l'indice deve citare
+    ///    esattamente il gruppo promosso, né uno di meno né uno di più;
+    /// 4. la stessa strada su una **copia**, con il contratto di un item
+    ///    riscritto sotto la ratifica già firmata — l'item deve uscire
+    ///    dall'indice per `stale-ratification`, e nessun altro.
+    fn seconda_strada(&self) -> Result<D4, PipelineError> {
+        let nome = self.pipeline.descrizione();
+        let fresche = self.fresche();
+        if fresche.is_empty() {
+            return Err(PipelineError::Altro(
+                "la tabella non dichiara nessuna ratifica fresca: la seconda strada di D4 non ha su che cosa agire"
+                    .into(),
+            ));
+        }
+        let riscrivibile = self.item_riscrivibile().ok_or_else(|| {
+            PipelineError::Altro(
+                "nessun item in uso, ratificato di fresco, senza difetti e con un prerequisito: il caso della ratifica superata non può essere costruito"
+                    .into(),
+            )
+        })?;
+        let rel_riscritto = riscrivibile.rel.to_string();
+
+        // ── atti 1, 2 e 3: il corpus di lavoro, un database, tre letture ──────
+        let radice = self.cfg.radice.clone();
+        let sessione = Session::nuova()?;
+        let mut atti = vec![Atto::verify(&radice)];
+        for s in &fresche {
+            atti.push(Atto::promote(&radice, spec::OPERATORE, s.rel));
+        }
+        atti.push(Atto::verify(&radice));
+        let eseguiti = self.pipeline.sequenza(&self.corpus, &sessione, &atti)?;
+        let n = fresche.len();
+        let vuoto = adapter::referto_di(&nome, &eseguiti, 0)?;
+        let promozioni = eseguiti[1..=n].to_vec();
+        let dopo = adapter::referto_di(&nome, &eseguiti, n + 1)?;
+
+        // ── atto 4: la stessa strada su una copia, con un contratto riscritto ──
+        let cartella = tempfile::tempdir().map_err(|e| PipelineError::Altro(e.to_string()))?;
+        let radice_copia = cartella.path().join("corpus");
+        self.corpus.scrivi_in(&radice_copia).map_err(|e| {
+            PipelineError::Altro(format!("{}: {e}", radice_copia.display()))
+        })?;
+        let sessione_copia = Session::nuova()?;
+        let mut atti_copia = vec![Atto::verify(&radice_copia)];
+        for s in &fresche {
+            atti_copia.push(Atto::promote(&radice_copia, spec::OPERATORE, s.rel));
+        }
+        atti_copia.push(Atto::verify(&radice_copia));
+        let prima = self.pipeline.sequenza(&self.corpus, &sessione_copia, &atti_copia)?;
+        let c_vuoto = adapter::referto_di(&nome, &prima, 0)?;
+        let c_promozioni = prima[1..=n].to_vec();
+        let c_dopo = adapter::referto_di(&nome, &prima, n + 1)?;
+
+        // **Qui il banco cambia il contratto.** È un atto di banco e non un
+        // atto di pipeline: il banco è il docente che corregge il proprio
+        // contratto, e l'adattatore non deve saper scrivere un corpus. La
+        // riscrittura è dichiarata e non casuale — vedi
+        // `Corpus::con_contratto_riscritto` — perché un caso che il banco
+        // crede di esercitare e non è quello è peggio di un caso assente.
+        self.corpus
+            .con_contratto_riscritto(&rel_riscritto)
+            .scrivi_in(&radice_copia)
+            .map_err(|e| PipelineError::Altro(format!("{}: {e}", radice_copia.display())))?;
+
+        // E adesso la terza lettura, sullo **stesso** database della copia:
+        // la ratifica esiste ancora, e vale per un testo che non è più
+        // quello che è stato firmato.
+        let terza = self
+            .pipeline
+            .sequenza(&self.corpus, &sessione_copia, &[Atto::verify(&radice_copia)])?;
+        let c_dopo_il_cambio = adapter::referto_di(&nome, &terza, 0)?;
+
+        Ok(D4 {
+            vuoto,
+            promozioni,
+            dopo,
+            copia: Copia {
+                vuoto: c_vuoto,
+                promozioni: c_promozioni,
+                dopo_il_cambio: c_dopo_il_cambio,
+                rel_riscritto,
+            },
+            _cartella: cartella,
+        })
+    }
+}
 /// Esegue il banco.
 pub struct Banco<'a> {
     corpus: Corpus,
@@ -525,8 +729,22 @@ impl<'a> Banco<'a> {
     }
 
     /// Ogni claim che dichiara uno span deve avere, nel file, l'ancora e il
-    /// testo dello span. Una claim con un puntatore che il lettore non
-    /// può aprire è una dichiarazione con un indirizzo.
+    /// testo dello span — e deve dichiararli **nella convenzione che `kbs-doc`
+    /// legge**: `data-claim` per il fatto, `data-claim-id` per l'identità,
+    /// `data-claim-span` per l'ancora. Una claim con un puntatore che il lettore
+    /// non può aprire è una dichiarazione con un indirizzo, e una claim
+    /// dichiarata in una convenzione che il lettore non riconosce è una claim
+    /// che nel registro non c'è.
+    ///
+    /// Il confronto è sui tre attributi, non sulla loro presenza: `id="…"`
+    /// compare in un file per altre ragioni, e una ricerca di `id` non distingue
+    /// «l'ancora della claim» da «un'id che qualcun altro usa».
+    ///
+    /// Il test che tiene insieme questo controllo e il lettore vero è
+    /// `tests/le_claim_sono_il_che_il_legge_ne_ricava.rs`: qui si verifica che
+    /// la resa dichiari ciò che la tabella dice, lì che `kbs-doc` ne ricavi
+    /// proprio la claim. I due insiemi insieme sono la prova, e ciascuno da
+    /// solono lascerebbe un buco.
     fn c_ancore(&self) -> Esito {
         let mut problemi = Vec::new();
         for s in self.corpus.voci() {
@@ -540,11 +758,17 @@ impl<'a> Banco<'a> {
             for cl in s.claims {
                 match (cl.ancora, cl.testo_span) {
                     (Some(a), Some(t)) => {
-                        if !artefatto.contains(&format!("data-claim=\"{}\"", cl.id)) {
-                            problemi.push(format!("{}: la claim {} non ha ancora nel testo", s.rel, cl.id));
+                        if !artefatto.contains(&format!("data-claim-id=\"{}\"", cl.id)) {
+                            problemi.push(format!(
+                                "{}: la claim {} non dichiara il suo id nella convenzione del lettore",
+                                s.rel, cl.id
+                            ));
                         }
-                        if !artefatto.contains(&format!("id=\"{a}\"")) {
-                            problemi.push(format!("{}: lo span {a} non c'è nel testo", s.rel));
+                        if !artefatto.contains(&format!("data-claim-span=\"{a}\"")) {
+                            problemi.push(format!(
+                                "{}: la claim {} non dichiara l'ancora {a} come suo span",
+                                s.rel, cl.id
+                            ));
                         }
                         if !artefatto.contains(&crate::render::esc(t)) {
                             problemi.push(format!(
@@ -803,7 +1027,6 @@ impl<'a> Banco<'a> {
                     pc("pipeline.registro.gli_errori_restano_e_non_si_cancellano", saltato(e)),
                     pc("pipeline.registro.le_claim_non_citabili_sono_soppresse_in_output", saltato(e)),
                     pc("pipeline.prerequisiti.il_ciclo_e_rifiutato", saltato(e)),
-                    pc("pipeline.esercizi.il_replay_e_deterministico", saltato(e)),
                     pc("pipeline.documenti.solo_la_versione_locale_di_three_e_pubblicabile", saltato(e)),
                     pc("pipeline.documenti.la_scena_3d_e_manipolabile_e_i_suoi_dati_sono_il_contenuto", saltato(e)),
                 ]
@@ -828,7 +1051,6 @@ impl<'a> Banco<'a> {
                 self.c_soppressione(uscita),
             ),
             pc("pipeline.prerequisiti.il_ciclo_e_rifiutato", self.c_ciclo(uscita)),
-            pc("pipeline.esercizi.il_replay_e_deterministico", self.c_replay(uscita)),
             pc(
                 "pipeline.documenti.solo_la_versione_locale_di_three_e_pubblicabile",
                 self.c_three(uscita),
@@ -997,43 +1219,39 @@ impl<'a> Banco<'a> {
         Esito::fallito_collect(problemi)
     }
 
-    /// D11: data la tupla (corpus, esercizio, seed) il sistema deve poter
-    /// **riprodurre** la generazione. Il banco dichiara le istanze e pretende
-    /// che la pipeline restituisca esattamente quelle.
-    fn c_replay(&self, u: &Uscita) -> Esito {
-        let voci = self.corpus.voci();
-        let mut problemi = Vec::new();
-        let mut n = 0;
-        for s in voci {
-            for ist in corpus::istanze_di(s) {
-                n += 1;
-                match u.istanza(&ist.exercise, &ist.seed) {
-                    None => problemi.push(format!(
-                        "{}: la pipeline non ha riprodotto l'istanza seed {}",
-                        ist.exercise, ist.seed
-                    )),
-                    Some(r) => {
-                        if r.expected != ist.expected {
-                            problemi.push(format!(
-                                "{} seed {}: attesa «{}», la pipeline dice «{}»",
-                                ist.exercise, ist.seed, ist.expected, r.expected
-                            ));
-                        }
-                        if r.params != ist.params {
-                            problemi.push(format!(
-                                "{} seed {}: parametri {}, la pipeline dice {}",
-                                ist.exercise, ist.seed, ist.params, r.params
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-        if n == 0 {
-            return Esito::fallito("nessuna istanza dichiarata: il replay deterministico non è esercitato");
-        }
-        Esito::fallito_collect(problemi)
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Qui NON c'è `pipeline.esercizi.il_replay_e_deterministico`, e la ragione
+    // è dichiarata perché un controllo che non c'è e una ragione che non si
+    // legge sono la stessa cosa dal punto di vista di chi legge il referto.
+    //
+    // Il controllo chiedeva alla **pipeline** le istanze che il banco ha nella
+    // **propria tabella Rust** (`spec::ExerciseSpec`). Non sono nel corpus: il
+    // file HTML rende `data-esercizio`, `data-famiglia`, `data-checker`,
+    // `data-seed` e i tre parametri, ma **non** la risposta attesa. Quindi
+    // nessuna pipeline basata su file può restituirle, e il controllo non
+    // poteva mai passare: non era una verifica, era un controllo impossibile.
+    //
+    // Il replay deterministico è di `kbs-exercise` e va verificato lì, senza
+    // passare dalla pipeline: è il posto in cui il generatore sta, e un
+    // controllo che lo raggiunge attraverso un processo che non genera nulla
+    // sta misurando la strada, non la proprietà.
+    //
+    // **Che cosa resta non testato, e dove il replay è adesso esercitato.**
+    // Il banco non verifica più che gli esercizi *dichiarati* abbiano le
+    // risposte che dichiara: quelle risposte sono valori nella tabella, e
+    // nessuna parte del sistema le ricalcola, quindi un test su di esse
+    // confronterebbe la tabella con sé stessa. Il replay come proprietà —
+    // stesso seed, stessa istanza; seed diverso, risposta diversa — è esercitato
+    // in `tests/il_replay_e_deterministico.rs`, che chiama il generatore
+    // direttamente.
+    //
+    // Le famiglie dichiarate dal banco (`somma-di-frazioni`, `algoritmo-euclide`,
+    // `conta-nodi-scena`, …) non sono le famiglie di `kbs-exercise`, che ne ha
+    // cinque e diverse. È la ragione per cui il test sostitutivo non può
+    // asserire le attese della tabella: asserirebbe che un generatore produce
+    // la risposta di un generatore che non esiste.
+
+
 
     /// D15: la versione locale del runtime passa, quella da CDN no. È la
     /// stessa coppia di item che il banco usa per la metà negativa.
@@ -1078,12 +1296,36 @@ impl<'a> Banco<'a> {
 
     /// D15.1: i dati della scena sono in un manifest separato dal rendering,
     /// ogni oggetto ha una claim, e almeno una relazione è correggibile. Se il
-    /// rendering fosse l'unica rappresentazione, un aggiornamento del
-    /// renderer cancellerebbe il materiale dello studente.
+    /// rendering fosse l'unica rappresentazione, un aggiornamento del renderer
+    /// cancellerebbe il materiale dello studente.
+    ///
+    /// # Perché questo controllo guarda **una** scena e non tutte
+    ///
+    /// Il corpus contiene due scene 3D ed è voluto: una che carica il runtime
+    /// vendorizzato e una che lo carica da una CDN.
+    /// `pipeline.documenti.solo_la_versione_locale_di_three_e_pubblicabile`
+    /// pretende che la seconda sia **rifiutata** con `external-reference`,
+    /// perché è la metà negativa di D15.
+    ///
+    /// Applicare a lei anche le proprietà di una scena che funziona — il
+    /// runtime dichiarato è quello servito dal binario, e c'è una relazione
+    /// correggibile — è pretendere che una fixture sia due cose: quella che
+    /// dimostra che il runtime vendorizzato passa, e quella che dimostra che
+    /// quello da CDN no. Le due richieste non possono valere insieme, e un
+    /// banco che le chiede entrambe è un banco che non può essere verde.
+    ///
+    /// La divisione è per **ruolo della fixture**, non per esclusione: qui si
+    /// esercita la scena che deve funzionare, e la scena che deve fallire la
+    /// verifica `c_three`, che è dove il suo fallimento è il punto. Se un
+    /// giorno il corpus avrà una terza scena, la decisione su quale delle due
+    /// famiglie appartiene è da prendere qui, per nome.
     fn c_manipolazione(&self, uscita: &Uscita) -> Esito {
         let voci = self.corpus.voci();
         let mut problemi = Vec::new();
-        for s in voci.iter().filter(|s| s.scena.is_some()) {
+        for s in voci
+            .iter()
+            .filter(|s| s.scena.is_some() && s.riferimento_esterno.is_none())
+        {
             let sc = s.scena.expect("filtrato sopra");
             // L'item che porta la scena deve essere nell'indice condiviso: un
             // oggetto 3D senza claim non entra (D15.1), e un item non valido
@@ -1314,7 +1556,7 @@ mod tests {
         nomi.sort();
         nomi.dedup();
         assert_eq!(nomi.len(), n, "due controlli hanno lo stesso nome");
-        assert_eq!(n, 23, "il banco ha 14 controlli sul corpus e 9 sulla pipeline");
+        assert_eq!(n, 22, "il banco ha 14 controlli sul corpus e 8 sulla pipeline");
     }
 
     /// Un banco senza pipeline non è un banco verde: è un banco che ha detto
@@ -1324,7 +1566,7 @@ mod tests {
         let assente = crate::adapter::PipelineAssente { ragione: "binario assente".into() };
         let banco = Banco::new(Config::radice_di_default(), &assente);
         let r = banco.esegui();
-        assert_eq!(r.saltati(), 9);
+        assert_eq!(r.saltati(), 8);
         assert!(!r.esito_con_rigidezza(true), "in CI i saltati sono fallimenti");
         for c in r.controlli.iter().filter(|c| c.di_pipeline) {
             match &c.esito {

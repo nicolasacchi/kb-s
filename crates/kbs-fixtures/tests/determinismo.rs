@@ -52,7 +52,7 @@ fn il_corpus_ha_gli_stessi_byte_ogni_volta() {
     assert_eq!(a.file(), b.file());
     assert_eq!(
         a.hash(),
-        "sha256:d7abeffaf04e3ec3238c43ac04c4d13ec30359960a82ec6c89fe0ce89b3a7370"
+        "sha256:ef203faaa5c4076424aa4f62de8022e071186c63c980360277ef3b8bfec30c3d"
     );
 }
 

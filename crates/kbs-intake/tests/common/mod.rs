@@ -125,6 +125,19 @@ pub fn artifact_generato_senza_lock() -> String {
     )
 }
 
+/// L'artifact che dichiara **chi** ha emesso la claim.
+///
+/// È il caso che un banco di prova reale esercita e che il percorso del file
+/// deve saper fare: un corpus è scritto da più persone, e la claim porta
+/// l'emittente con sé. Senza questo, l'intake registra l'affermazione come
+/// emessa dall'artifact che la contiene, e il registro perde la persona.
+pub fn artifact_con_emittente(persona: &str) -> String {
+    artifact(false).replace(
+        r#"data-stato="supported""#,
+        &format!(r#"data-stato="supported" data-claim-emitter="teacher:{persona}""#),
+    )
+}
+
 /// Il corso di [`artifact`].
 pub fn corso() -> CourseId {
     CourseId(CORSO.to_string())

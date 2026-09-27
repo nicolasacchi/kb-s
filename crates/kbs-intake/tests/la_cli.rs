@@ -241,8 +241,16 @@ fn la_diagnosi_si_registra_e_le_generazioni_si_rileggono() {
     assert_eq!(gen.uscita, Uscita::Ok, "stderr: {}", gen.stderr);
     assert!(gen.json()["lock_id"].as_str().unwrap().len() > 8);
 
+    // `--person` è obbligatorio, e non per una forma della CLI: il registro
+    // delle generazioni è gated, e chi lo rilegge è la persona che lo ha
+    // scritto. Il test passa `person_0001`, la stessa che ha generato: la
+    // lettura senza persona non esiste più, e se quella persona può è una
+    // decisione del negozio, non della CLI.
     let letti = esegui(
-        &format!("generations --db {} --arg esercizi/nuovo.html", dbp.display()),
+        &format!(
+            "generations --db {} --person person_0001 --arg esercizi/nuovo.html",
+            dbp.display()
+        ),
         "",
     );
     assert_eq!(letti.uscita, Uscita::Ok);

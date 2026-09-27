@@ -15,6 +15,18 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+# Il **lettore** del formato, non il sistema sotto prova. Un artifact che
+# `kbs-doc` non rilegge è un artifact che nessuna pipeline può interpretare, e
+# la domanda «lo rilegge?» ha una risposta che si ottiene con il parser e non
+# con una ricerca di stringhe: è la stessa differenza fra misurare e indovinare.
+kbs-doc.workspace = true
+# Il generatore degli esercizi, per il replay deterministico di D11. Vedi
+# `tests/il_replay_e_deterministico.rs` perché il controllo omonimo non può
+# passare e cosa al suo posto è adesso esercitato.
+kbs-exercise.workspace = true
 
 [[bin]]
 name = "kbs-bench"

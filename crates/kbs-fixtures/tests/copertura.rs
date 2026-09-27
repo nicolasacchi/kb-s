@@ -292,7 +292,7 @@ fn la_catena_e_reale_e_il_ciclo_e_dichiarato() {
 fn il_referto_dichiara_i_saltati_e_in_ci_sono_fallimenti() {
     let r = banco();
     assert_eq!(r.falliti(), 0, "{}", report_da(&r));
-    assert_eq!(r.saltati(), 9);
+    assert_eq!(r.saltati(), 8, "otto controlli dipendono dalla pipeline");
     assert!(r.ok(), "senza pipeline il banco non deve fallire");
     assert!(!r.esito_con_rigidezza(true), "in CI i saltati sono fallimenti");
     for c in r.controlli.iter().filter(|c| c.di_pipeline) {
@@ -338,45 +338,109 @@ fn la_contestazione_vive_dentro_la_riga_del_voto() {
     // I tempi sono derivati dall'epoca fissa, non da `now()`: un banco i cui
     // tempi cambiano non è confrontabile.
     assert!(g.at.0 > Millis(0).0);
-    assert_eq!(RatificaSpec::Stale, RatificaSpec::Stale);
-    let _ = Ratification {
-        by: kbs_core::PersonId::fixture(1),
-        at: g.at,
-        contract_hash: g.id.clone(),
-        note: "esiste una ratifica anche quando è superata".into(),
-    };
 }
 
-/// D3, resa impossibile dal tipo: nessun modello può emettere una claim o un
-/// giudizio. Il test enumera i giudicanti e gli emittenti e verifica che
-/// nessuno sia un modello; in più, se domani domani una variante a `enum`
-/// senza aggiornare questo elenco, il codice **non compila**. È una garanzia
-/// più forte di un'asserzione, e l'asserzione serve a dirlo.
+/// La ratifica **superata** esiste nel banco, e porta l'hash di un contratto
+/// diverso da quello corrente.
+/// Il caso è la condizione che `kbs_core::check_citable` trasforma in
+/// `StaleRatification`, e su dati veri: un fixture in cui le due righe
+/// coinciderebbero non eserciterebbe il percorso che D4 fa poggiare su
+/// `check_citable`. Confrontare una variante di enum con sé stessa non dice
+/// niente; dire che l'hash dichiarato è diverso da quello corrente sì.
+#[test]
+fn la_ratifica_superata_porte_un_hash_che_non_e_il_corrente() {
+    // Il fixture non è scritto per nome: cercarlo per nome significherebbe che
+    // il test si rompe quando la tabella cresce, e si romperebbe nel modo più
+    // costoso — dichiarando che manca un caso che invece c'è.
+    let s = items::voci()
+        .into_iter()
+        .find(|s| s.ratifica == RatificaSpec::Stale)
+        .expect("il banco dichiara almeno una ratifica superata");
+    assert_eq!(s.ratifica, RatificaSpec::Stale, "{} non dichiara una ratifica superata", s.rel);
+    let argomento = corpus::argomento(&s, 0);
+    let ratifica = argomento.ratified.as_ref().expect("una ratifica superata è una ratifica");
+    assert_ne!(
+        ratifica.contract_hash, argomento.content_hash,
+        "se i due hash coincidessero la ratifica non sarebbe superata e il percorso \
+         di `StaleRatification` non sarebbe esercitato"
+    );
+    assert!(matches!(
+        check_citable(&argomento),
+        Err(Invariant::StaleRatification { .. })
+    ));
+    // E la riga superata è un caso reale, non una costruzione: nel banco c'è
+    // esattamente un item con ratifica superata, e dichiararlo evita che il
+    // caso sparisca senza che nessuno lo noti.
+    let superate: usize = items::voci()
+        .iter()
+        .filter(|s| s.ratifica == RatificaSpec::Stale)
+        .count();
+    let _ = s.rel;
+    assert_eq!(superate, 1, "il banco deve avere un solo item con ratifica superata");
+}
+
+/// D3, resa **impossibile dal tipo**: nessun modello può emettere una claim o
+/// un giudizio.
+///
+/// Il compilatore fa la parte difficile, ed è una parte vera: `chiusura` è un
+/// `match` **senza** braccio `_` su un enum, quindi se `kbs-core` aggiunge una
+/// variante il file smette di compilare. Non è una promessa, è un fatto, e
+/// l'array che c'è qui sotto non lo era: un array di lunghezza fissa con
+/// costruttori espliciti accetta silenziosamente una variante nuova, e
+/// l'asserzione che lo confrontava con l'elenco non se ne accorgerebbe.
+///
+/// L'elenco che resta serve a un'altra cosa, ed è dichiarato: l'etichetta che
+/// finisce nel registro e che un lettore umano legge. Quella non la deduce il
+/// compilatore.
 #[test]
 fn nessun_modello_puo_emettere_una_claim_o_un_giudizio() {
     use kbs_core::{Emitter, GraderKind, Origin};
-    let giudicanti: [(GraderKind, &str); 4] = [
-        (GraderKind::Deterministic, "deterministic"),
-        (GraderKind::Peer, "peer"),
-        (GraderKind::Human, "human"),
-        (GraderKind::Teacher, "teacher"),
-    ];
-    for (k, nome) in giudicanti {
-        let s = format!("{k:?}").to_lowercase();
-        assert_eq!(s, nome, "l'elenco dei giudicanti non è più quello del tipo");
-        assert!(!s.contains("model") && !s.contains("llm") && !s.contains("ai"));
+
+    /// L'etichetta di ogni giudicante, in un `match` chiuso.
+    ///
+    /// Il nome è quello che `kbs-core` serializza in kebab-case, ed è quello
+    /// che finisce nel registro.
+    fn etichetta_di_giudicante(k: GraderKind) -> &'static str {
+        match k {
+            GraderKind::Deterministic => "deterministic",
+            GraderKind::Peer => "peer",
+            GraderKind::Human => "human",
+            GraderKind::Teacher => "teacher",
+        }
     }
-    let emittenti: [(Emitter, &str); 3] = [
-        (Emitter::Teacher { by: kbs_core::PersonId::fixture(1) }, "teacher"),
-        (Emitter::Content { argument: kbs_core::ArgumentId::fixture(1) }, "content"),
-        (Emitter::FromWork { observation: "obs".into() }, "fromwork"),
-    ];
-    for (e, nome) in emittenti {
+
+    /// L'etichetta di ogni emittente, in un `match` chiuso.
+    fn etichetta_di_emittente(e: &Emitter) -> &'static str {
+        match e {
+            Emitter::Teacher { .. } => "teacher",
+            Emitter::Content { .. } => "content",
+            Emitter::FromWork { .. } => "fromwork",
+        }
+    }
+
+    for k in [
+        GraderKind::Deterministic,
+        GraderKind::Peer,
+        GraderKind::Human,
+        GraderKind::Teacher,
+    ] {
+        let nome = etichetta_di_giudicante(k);
         // Il tipo chiama la variante `FromWork` e lo schema dichiarato la
         // chiama `from-work`: il confronto è sul nome senza trattini, che è
         // quello che finisce nel registro e che un lettore legge.
+        let s = format!("{k:?}").to_lowercase();
+        assert_eq!(s, nome, "l'etichetta del giudicante non è più quella del tipo");
+        assert!(!s.contains("model") && !s.contains("llm") && !s.contains("ai"));
+    }
+
+    for e in [
+        Emitter::Teacher { by: kbs_core::PersonId::fixture(1) },
+        Emitter::Content { argument: kbs_core::ArgumentId::fixture(1) },
+        Emitter::FromWork { observation: "obs".into() },
+    ] {
+        let nome = etichetta_di_emittente(&e);
         let s = format!("{e:?}").to_lowercase().replace('-', "");
-        assert!(s.starts_with(nome), "l'elenco degli emittenti non è più quello del tipo: {s}");
+        assert!(s.starts_with(nome), "l'etichetta dell'emittente non è più quella del tipo: {s}");
         assert!(!s.contains("model") && !s.contains("llm"));
     }
     // L'unico posto in cui un modello compare è l'origine: un **record** di

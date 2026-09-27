@@ -138,7 +138,6 @@ fn ogni_capacita_dichiara_il_test_che_la_demonstra() {
         "solo {dimostrate} capacità dichiarate dimostrate: il README deve mostrare anche ciò che non lo è"
     );
 
-    let sorgenti = sorgenti_workspace();
     let controlli = controlli_del_banco();
 
     for (cap, riferimento, stato) in &righe {
@@ -198,7 +197,6 @@ fn ogni_capacita_dichiara_il_test_che_la_demonstra() {
             esiste_il_test(&ultimo),
             "{cap}: il test «{ultimo}» non esiste in nessun crate del workspace"
         );
-        let _ = sorgenti.len();
         if !stato.starts_with("dimostrata") {
             assert!(
                 stato.contains("non dimostrata"),

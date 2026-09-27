@@ -60,6 +60,9 @@ pub enum Error {
     #[error("l'artifact dichiara lo stato `{dichiarato}` e questa strada non scrive mai uno stato di pubblicazione: entra in `bozza` e la promozione passa da `kbs_intake::gate`")]
     StatoDichiaratoNonScrivibile { dichiarato: String },
 
+    #[error("la riga di `arguments` porta lo stato `{raw}`, che non è uno stato di `kbs_core::PublicationState`: è una riga da riparare, e fingere che sia una bozza scriverebbe sopra un argomento che non si sa che cosa sia")]
+    StatoSconosciuto { raw: String },
+
     #[error("l'artifact dichiara l'origine `generated` e non porta un model lock: D10 dice che ogni generazione registra modello, hash del prompt e hash del corpus, e una dichiarazione senza lock è un diario")]
     GenerazioneSenzaLock { rel_path: String },
 
@@ -141,6 +144,7 @@ impl Error {
             Error::RigaNonRiconosciuta { .. } => "riga-non-riconosciuta",
             Error::ChiaveRipetuta { .. } => "chiave-ripetuta",
             Error::StatoDichiaratoNonScrivibile { .. } => "stato-dichiarato-non-scrivibile",
+            Error::StatoSconosciuto { .. } => "stato-sconosciuto",
             Error::GenerazioneSenzaLock { .. } => "generazione-senza-lock",
             Error::TitoloMancante { .. } => "titolo-mancante",
             Error::ContenutoCambiato { .. } => "contenuto-cambiato",

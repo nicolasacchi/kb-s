@@ -111,7 +111,11 @@ fn il_seq_l_assigna_il_registro_e_riparte_da_uno_a_ogni_sessione() {
 
     // E la catena copre quello che dice di coprire: le righe della sessione,
     // nell'ordine del seq, non nell'ordine di arrivo.
-    let righe = s.observations_in_session(&altra).unwrap();
+    // Il registro delle osservazioni è gated: si legge con una persona, e la
+    // persona che ha scritto la sessione è quella che può rileggerla. Non è
+    // una restrizione che il test aggira: è la regola, e il test la esercita
+    // per quello che è.
+    let righe = s.observations_in_session(&docente(), &altra).unwrap();
     assert_eq!(righe.len(), 1);
     assert_eq!(righe[0].seq, terza.seq);
 }

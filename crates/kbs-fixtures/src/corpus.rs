@@ -18,6 +18,7 @@ use kbs_core::{
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::path::Path;
 
 /// Un file del corpus: percorso relativo e byte.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +39,15 @@ impl Corpus {
     /// Costruisce il corpus dalla tabella. La funzione è pura: stesse voci,
     /// stessi byte, e l'hash del corpus è quello di ieri.
     pub fn dalla_tabella() -> Self {
-        let voci = items::voci();
+        Self::da_voci(items::voci())
+    }
+
+    /// Costruisce un corpus da voci che non sono necessariamente quelle della
+    /// tabella. È il modo in cui il banco produce una **copia** da mettere
+    /// sotto la pipeline: stessa tabella, con una voce cambiata, e quindi un
+    /// corpus diverso — di cui il banco sa dire che differisce in un file e in
+    /// uno solo.
+    pub fn da_voci(voci: Vec<Spec>) -> Self {
         let mut file = Vec::with_capacity(voci.len() + 4);
         for s in &voci {
             file.push(File {
@@ -56,6 +65,48 @@ impl Corpus {
         }
         file.sort_by(|a, b| a.rel.cmp(&b.rel));
         Corpus { file, voci }
+    }
+
+    /// Il corpus con il **contratto** di un item riscritto, e con nient'altro
+    /// cambiato: è la correzione che un docente fa dopo aver firmato, non un
+    /// altra unità. Il resto dei file resta identico byte per byte, e un test
+    /// lo verifica — se la copia differisse in un punto oltre al contratto,
+    /// il caso che il banco crede di esercitare non sarebbe quello.
+    ///
+    /// La riscrittura non è una frase inventata: è la **sezione
+    /// `PREREQUISITI` svuotata**, cioè l'argomento che non è più richiesto.
+    /// È la correzione più piccola che cambi davvero l'hash del contratto, ed
+    /// è la stessa che il banco racconta in `prove/02-prova-finale.html`.
+    pub fn con_contratto_riscritto(&self, rel: &str) -> Corpus {
+        let voci: Vec<Spec> = self
+            .voci
+            .iter()
+            .map(|s| {
+                if s.rel == rel {
+                    Spec {
+                        prerequisiti: &[],
+                        ..*s
+                    }
+                } else {
+                    *s
+                }
+            })
+            .collect();
+        Corpus::da_voci(voci)
+    }
+
+    /// Scrive il corpus sotto `dir`, creando le cartelle che mancano. È il
+    /// modo in cui il banco mette una **copia** sotto la pipeline: la copia è
+    /// ciò che il banco modifica, e il corpus di lavoro non lo tocca mai.
+    pub fn scrivi_in(&self, dir: &Path) -> std::io::Result<()> {
+        for f in &self.file {
+            let p = dir.join(&f.rel);
+            if let Some(parent) = p.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&p, f.contenuto.as_bytes())?;
+        }
+        Ok(())
     }
 
     /// I file, in ordine di percorso.
@@ -192,21 +243,14 @@ fn origin_di(s: &Spec, indice: usize) -> Origin {
             by: persona(by),
             at: render::creato_a(indice),
         },
-        crate::spec::OriginSpec::Generated { by, model, prompt_hash, generator } => {
-            Origin::Generated {
-                lock: kbs_core::ModelLock {
-                    model_id: model.to_string(),
-                    prompt_hash: prompt_hash.to_string(),
-                    // L'hash del corpus al momento della generazione: senza
-                    // questo la generazione non è riproducibile (D11).
-                    corpus_hash: Corpus::hash_file(&format!("corpus-al-{}:{}", s.rel, indice)),
-                    generator_version: generator.to_string(),
-                    at: render::creato_a(indice),
-                },
-                by: persona(by),
-                at: render::creato_a(indice),
-            }
-        }
+        crate::spec::OriginSpec::Generated { by, .. } => Origin::Generated {
+            // Lo stesso lock che il file dichiara, dalla stessa funzione: se il
+            // file e la tabella costruissero il lock separatamente, la prima
+            // ricorrenza li dividerebbe e nessuno dei due se ne accorgerebbe.
+            lock: crate::render::lock_di(s),
+            by: persona(by),
+            at: render::creato_a(indice),
+        },
         crate::spec::OriginSpec::Derived { from } => Origin::Derived {
             from: ArgumentId::from_rel_path(from),
             at: render::creato_a(indice),
@@ -442,7 +486,7 @@ mod tests {
         let c = Corpus::dalla_tabella();
         assert_eq!(
             c.hash(),
-            "sha256:d7abeffaf04e3ec3238c43ac04c4d13ec30359960a82ec6c89fe0ce89b3a7370"
+            "sha256:ef203faaa5c4076424aa4f62de8022e071186c63c980360277ef3b8bfec30c3d"
         );
     }
 }

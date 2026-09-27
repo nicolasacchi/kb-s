@@ -142,7 +142,7 @@ fn il_lock_si_registra_e_si_rilegge_dal_registro() {
         at: lock.at,
     };
     s.record_generation(&evento).expect("lock registrato");
-    let riletti = s.generations_for(&id).unwrap();
+    let riletti = s.generations_for(&docente(), &id).unwrap();
     assert_eq!(riletti.len(), 1);
     assert_eq!(riletti[0].lock, lock, "il lock rilegto e' quello scritto");
     assert_eq!(riletti[0].lock_id(), evento.lock_id());
@@ -166,7 +166,7 @@ fn due_generazioni_identiche_hanno_lo_stesso_lock_id_e_lo_stesso_registro() {
         })
         .unwrap();
     }
-    let eventi = s.generations_for(&id).unwrap();
+    let eventi = s.generations_for(&docente(), &id).unwrap();
     assert_eq!(eventi.len(), 2, "due eventi distinti");
     assert_eq!(eventi[0].lock_id(), eventi[1].lock_id(), "stesso lock, stesso id");
     assert_ne!(eventi[0].at, eventi[1].at, "ma due atti distinti");

@@ -44,9 +44,10 @@ use std::collections::BTreeMap;
 
 use kbs_core::{
     Argument, ArgumentId, Claim, ClaimStatus, CourseId, Emitter, Invariant, Millis, Origin,
-    PersonId, PublicationState,
+    PersonId, PublicationState, Ratification,
 };
 use kbs_store::Store;
+use rusqlite::OptionalExtension;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -252,6 +253,73 @@ fn esiste(store: &Store, id: &ArgumentId) -> bool {
         .is_ok()
 }
 
+/// Lo stato e la ratifica che il negozio ha **gia'** per un argomento.
+///
+/// Sono i due campi che D4 dichiara di proprieta' della porta e non del file, e
+/// la ragione per cui questa funzione esiste e' tutta qui: una riscanione
+/// ricostruisce l'`Argument` dal file, e se lo ricostruisse **senza** questi due
+/// campi chiederebbe al negozio due scritture che il negozio rifiuta per
+/// regola — portare `in-corso` a `bozza`, che non e' una scrittura ma una
+/// transizione, e svuotare una ratifica, che D4 vieta a chiunque non sia la
+/// porta. Il rifiuto del negozio e' giusto; la domanda sbagliata e' la nostra.
+///
+/// Una `SELECT` di servizio, come [`esiste`]: qui non si chiede «posso vederlo»
+/// (D5) ma «che cosa c'e' gia' scritto», e sono due domande diverse.
+fn porta_e_ratifica_memorizzate(
+    store: &Store,
+    id: &ArgumentId,
+) -> Result<(Option<PublicationState>, Option<Ratification>)> {
+    let riga: Option<(String, Option<String>, Option<i64>, Option<String>, Option<String>)> = store
+        .conn()
+        .query_row(
+            "SELECT state, ratified_by, ratified_at, ratified_contract_hash, ratified_note \
+               FROM arguments WHERE id = ?1",
+            [id.0.as_str()],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| Error::Store(kbs_store::Error::Sqlite(e)))?;
+    let Some((stato, by, at, hash, nota)) = riga else {
+        return Ok((None, None));
+    };
+    // Le colonne sono NULL quando non c'e' ratifica: leggerle come `String`
+    // sarebbe un errore di tipo su una riga perfettamente valida.
+    let ratifica = match (by, at, hash) {
+        (Some(by), Some(at), Some(hash)) => Some(Ratification {
+            by: PersonId(by),
+            at: Millis(at),
+            contract_hash: hash,
+            note: nota.unwrap_or_default(),
+        }),
+        _ => None,
+    };
+    let stato = decode_stato(&stato)?;
+    Ok((Some(stato), ratifica))
+}
+
+/// Lo stato come lo scrive il negozio. Una `SELECT` che legge una colonna
+/// `TEXT` puo' solo dare successo o fallimento, e qui fallire significa che la
+/// riga e' da riparare: si dice che e' successo e si restituisce l'errore.
+fn decode_stato(raw: &str) -> Result<PublicationState> {
+    match raw {
+        "bozza" => Ok(PublicationState::Bozza),
+        "del-docente" => Ok(PublicationState::DelDocente),
+        "in-corso" => Ok(PublicationState::InCorso),
+        "archiviato" => Ok(PublicationState::Archiviato),
+        altro => Err(Error::StatoSconosciuto {
+            raw: altro.to_string(),
+        }),
+    }
+}
+
 /// Un solo tipo di tempo nel sistema: `kbs_core::Millis` lo dichiara, e due
 /// formati renderebbero ogni ordinamento falso.
 fn now() -> kbs_core::Millis {
@@ -310,6 +378,13 @@ pub fn prepara(store: &mut Store, request: Request) -> Result<Receipt> {
             message: issue.message.clone(),
             blocking: issue.severity == kbs_doc::Severity::Blocking,
         });
+    }
+    // D7 ha una regola che `kbs_doc` non può applicare, e il motivo è dichiarato
+    // dalla funzione stessa: `guardian_oltre_budget`.
+    if let Some(contratto) = &report.contract {
+        if let Some(d) = guardian_oltre_budget(contratto) {
+            verdict.push(d);
+        }
     }
 
     let title = match report.parsed.title.as_deref() {
@@ -406,6 +481,12 @@ pub fn prepara(store: &mut Store, request: Request) -> Result<Receipt> {
         }
     };
 
+    // I due campi di D4 che **non** sono del file, letti prima di costruire
+    // l'argomento: lo stato che il negozio ha gia' pubblicato e la ratifica che
+    // il docente ha gia' firmato. Vedi `porta_e_ratifica_memorizzate` perche'
+    // senza di loro questa funzione romperebbe la regola che applica.
+    let (stato_della_porta, ratifica) = porta_e_ratifica_memorizzate(store, &id)?;
+
     let argument = Argument {
         id,
         title,
@@ -413,10 +494,18 @@ pub fn prepara(store: &mut Store, request: Request) -> Result<Receipt> {
         // La sola scrittura di stato che questa strada fa e' fra i due stati
         // mutabili. `in-corso` e `archiviato` passano da `apply_declared_state`,
         // che chiede la ratifica al negozio invece di fingere di essere la
-        // ratifica.
-        state: match declared {
-            Some(PublicationState::DelDocente) => PublicationState::DelDocente,
-            _ => PublicationState::Bozza,
+        // ratifica — e se il negozio ne ha gia' una, lo stato pubblicato resta:
+        // una riscanione non e' un atto del docente, e `kbs_store` rifiuta gia'
+        // di portare un argomento fuori da `in-corso` con una scrittura.
+        state: {
+            let chiesto: PublicationState = match declared {
+                Some(PublicationState::DelDocente) => PublicationState::DelDocente,
+                _ => PublicationState::Bozza,
+            };
+            match stato_della_porta {
+                Some(s) if !s.is_mutable() => s,
+                _ => chiesto,
+            }
         },
         course,
         // Prima fase: nessun grafo. Lo scrive [`completa`].
@@ -426,7 +515,11 @@ pub fn prepara(store: &mut Store, request: Request) -> Result<Receipt> {
         content_hash: content.clone(),
         created_at: now,
         updated_at: now,
-        ratified: None,
+        // La ratifica che c'era prima, se c'era. Portarla avanti non e'
+        // reintrodurre la firma di un altro: e' la stessa firma, sugli stessi
+        // byte che l'hash qui sotto confronta, ed e' l'hash che decide se vale
+        // ancora (`kbs_core::check_citable`).
+        ratified: ratifica,
     };
 
     store.upsert_argument(&argument)?;
@@ -548,6 +641,67 @@ pub fn apply_declared_state(
 }
 
 // ── ciò che il documento dichiara ─────────────────────────────────────────────
+
+/// D7: `GUARDIAN` deve stare **dentro i primi 640 byte**, e questa funzione
+/// dice perché sta qui e non dentro `kbs-doc`.
+///
+/// # Che cosa dice D7
+///
+/// «`GUARDIAN` deve stare dentro i primi 640 byte, perché il troncamento
+/// taglia la coda». La quantità è l'estensione della sezione: quanto occupa
+/// dalla sua intestazione alla sezione successiva. Il limite è il budget della
+/// prima sezione, che è 640.
+///
+/// # Perché non basta `kbs-doc`
+///
+/// `kbs_doc::contract` ha il codice giusto — `ContractError::GuardianTooLate`,
+/// che [`code_of_doc_issue`] traduce in `contract-guardian-out-of-budget` — ma
+/// lo confronta con l'**offset** della riga `## GUARDIAN`. Per la prima sezione
+/// quell'offset è sempre zero, quindi la regola non può mai fallire: un
+/// `GUARDIAN` di duemila byte passa. Non è un numero che `kbs-doc` sbaglia a
+/// leggere: è un numero diverso da quello che D7 nomina, e nessuna correzione
+/// di lettura lo trasformerebbe in quello giusto.
+///
+/// # Perché qui
+///
+/// D7 mette questa regola nell'elenco di ciò che «il validatore deve applicare,
+/// in fase di build», accanto a `contracts.truncated = 1 ⇒ non eseguibile».
+/// Il troncamento è una decisione di esecuzione, e l'esecuzione è la porta: è
+/// la stessa separazione che il modulo [`crate::gate`] dichiara per il
+/// verdetto — «il negozio ha l'hash del documento e non può rispondere «questa
+/// pagina chiama una CDN»». Qui la quantità c'è già: arriva nel
+/// `ContractReport` che `kbs_doc::validate` ha prodotto, con gli offset di
+/// ogni intestazione. Non si rilegge il contratto e non se ne replica la
+/// grammatica: si usa il posto dove la sezione successiva comincia, che è
+/// esattamente il posto dove `kbs-doc` stesso calcola la fine di una sezione.
+fn guardian_oltre_budget(contratto: &kbs_doc::contract::ContractReport) -> Option<Diagnostic> {
+    use kbs_doc::contract::{SECTIONS, SectionReport};
+
+    let sezioni: &[SectionReport] = &contratto.sections;
+    let (posizione, guardian) = sezioni.iter().enumerate().find(|(_, s)| s.index == 0)?;
+    // La sezione finisce dove comincia la successiva; l'ultima finisce con il
+    // contratto. `total_bytes` è la misura **non troncata**, che è quella giusta:
+    // se il contratto è troncato, l'agente legge meno byte, e la sezione che
+    // li contiene è tagliata — che è esattamente ciò che la regola vieta.
+    let fine = sezioni
+        .get(posizione + 1)
+        .map(|s| s.heading_offset)
+        .unwrap_or(contratto.total_bytes);
+    let limite = SECTIONS[0].budget;
+    if fine <= limite {
+        return None;
+    }
+    Some(Diagnostic::blocking(
+        "contract-guardian-out-of-budget",
+        format!(
+            "la sezione GUARDIAN finisce al byte {fine} del contratto e deve stare nei primi \
+             {limite} (D7): il troncamento taglia la coda, e un vincolo che il lettore non vede \
+             non è un vincolo. Il GUARDIAN sta al byte {} del contratto e vuol dire che la \
+             sezione è lunga, non che è stata spostata",
+            guardian.heading_offset
+        ),
+    ))
+}
 
 fn declared_course(report: &kbs_doc::ArtifactReport) -> Option<CourseId> {
     report

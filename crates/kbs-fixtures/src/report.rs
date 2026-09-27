@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn il_referto_testuale_nomina_i_saltati_e_la_ragione() {
         let t = in_testo(&referto(), false);
-        assert!(t.contains("saltati (9)"));
+        assert!(t.contains("saltati (8)"));
         assert!(t.contains("SKIP  pipeline.validazione.corrisponde_all_attesa"));
         assert!(t.contains("binario assente"));
         assert!(t.contains("esito: PASSATO"));
