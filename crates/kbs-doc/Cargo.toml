@@ -6,6 +6,16 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "TODO"
+description = "Il livello documento: HTML nativo, contratto didattico D7, divieto di CDN D15, provenienza dichiarata"
 
 [dependencies]
+kbs-core = { workspace = true }
+scraper = { workspace = true }
+ego-tree = "0.10"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[dev-dependencies]
+kbs-core = { workspace = true }
