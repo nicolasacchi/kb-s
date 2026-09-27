@@ -225,11 +225,28 @@ pub enum ClaimStatus {
 }
 
 impl ClaimStatus {
-    /// Un'affermazione falsa o ritrattata resta nell'indice con la sua traccia.
-    /// Quello che non resta è l'**output**. Confondere le due cose è l'errore che
-    /// rende un registro inutilizzabile: un registro che cancella i propri errori
-    /// non è un registro, è una propaganda.
-    pub fn suppresses_output(self) -> bool { matches!(self, ClaimStatus::Unciteable) }
+    /// Nell'**output citabile** finisce solo ciò che è sostenuto. Quindi ne
+    /// escono `Contradicted`, `Unciteable` e `Ritracted`.
+    ///
+    /// `Contradicted` è il caso più insidioso dei tre: uno span c'è e **non**
+    /// sostiene. È peggio di `Unciteable`, perché lo span dà alla frase una
+    /// credibilità falsa — il lettore vede un riferimento e conclude che la
+    /// verifica sia passata.
+    ///
+    /// Nel **registro** restano tutte e tre, con la loro ragione: un registro
+    /// che cancella i propri errori non è un registro, è una propaganda.
+    ///
+    /// Nota sul precedente di questa funzione: sopprimeva solo `Unciteable`,
+    /// mentre la documentazione qui sopra affermava il contrario. Il nome del
+    /// test che la sorreggeva parlava del *registro* e non dell'*output*, quindi
+    /// fissava la metà sbagliata senza dirlo. È il difetto che questa funzione
+    /// esiste per evitare: una promessa nella doc che il corpo non mantiene.
+    pub fn suppresses_output(self) -> bool {
+        matches!(
+            self,
+            ClaimStatus::Contradicted | ClaimStatus::Unciteable | ClaimStatus::Retracted { .. }
+        )
+    }
 }
 
 /// Chi ha emesso l'affermazione. Un modello **non è un emittente**: sta fuori dal
@@ -611,12 +628,34 @@ mod tests {
         assert!(CohortSignal { failing: 5, ..base.clone() }.is_publishable());
     }
 
-    /// Un'affermazione falsa resta nell'indice: è la traccia dell'errore.
+    /// Il nome di questo test dice due cose, e le due cose sono distinte: l'errore
+    /// **si registra** e **non si cancella**, ma **non si pubblica** come se fosse
+    /// vero. Una versione precedente asseriva solo la seconda metà, e la asseriva
+    /// al contrario: fissava la metà sbagliata senza che il nome lo dichiarasse.
     #[test]
     fn un_errore_si_registra_e_non_si_cancella() {
-        assert!(!ClaimStatus::Contradicted.suppresses_output());
+        // L'output citabile contiene solo ciò che è sostenuto.
+        assert!(ClaimStatus::Supported.suppresses_output() == false);
+        assert!(ClaimStatus::Contradicted.suppresses_output());
         assert!(ClaimStatus::Unciteable.suppresses_output());
-        assert!(!ClaimStatus::Supported.suppresses_output());
+        assert!(ClaimStatus::Retracted { reason: "r".into() }.suppresses_output());
+    }
+
+    /// Lo stesso fatto, guardato dal lato del **registro**: tutte e quattro le
+    /// righe esistono. Una riga che un registro perde non è più un errore
+    /// corretto, è un errore ripetuto senza che nessuno lo sappia.
+    #[test]
+    fn il_registro_conserva_tutte_le_quattro_le_stanze() {
+        let tutte = [
+            ClaimStatus::Supported,
+            ClaimStatus::Contradicted,
+            ClaimStatus::Unciteable,
+            ClaimStatus::Retracted { reason: "r".into() },
+        ];
+        assert_eq!(tutte.len(), 4, "il registro non ne perde nessuna");
+        // E nessuna delle quattro è «sconosciuta»: l'enum le copre tutte, quindi
+        // un quinto stato non può comparire senza che questo test lo veda.
+        assert!(matches!(ClaimStatus::Supported, ClaimStatus::Supported));
     }
 
     /// D3: la prova orale non entra nel replay deterministico, e lo dichiara.

@@ -166,7 +166,7 @@ il file: una correzione che cambia il test deve essere rumorosa, non silenziosa.
 | Il validatore rifiuta un `GUARDIAN` oltre i 640 byte e un contratto oltre il cap | `pipeline.validazione.i_codici_di_rifiuto` | non dimostrata: la pipeline non esiste, il controllo è saltato |
 | Un artifact che referenzia una CDN impedisce la pubblicazione | `pipeline.documenti.solo_la_versione_locale_di_three_e_pubblicabile` | non dimostrata: la pipeline non esiste, il controllo è saltato |
 | Il ciclo nei prerequisiti impedisce l'ingresso dell'argomento | `pipeline.prerequisiti.il_ciclo_e_rifiutato` | non dimostrata: la pipeline non esiste, il controllo è saltato |
-| Data la tupla (corpus, esercizio, seed) il replay riproduce la generazione | `pipeline.esercizi.il_replay_e_deterministico` | non dimostrata: la pipeline non esiste, il controllo è saltato |
+| Data la tupla (corpus, esercizio, seed) il replay riproduce la generazione | `il_replay_e_deterministico::lo_stesso_seed_da_la_stessa_istanza` | dimostrata sul generatore vero: il controllo di pipeline che la dichiarava e' stato rimosso perche' non poteva mai passare |
 | Una ratifica superata rende l'argomento non citabile **nell'indice** | `pipeline.indicizzazione.solo_i_ratificati_sono_citabili` | non dimostrata: la pipeline non esiste, il controllo è saltato |
 | La catena di hash copre le osservazioni e ha una consistency proof | — | non dimostrata: non c'è codice, e `D6` la dichiara come limite dichiarato |
 | Un accesso applica il predicato di visibilità | — | non dimostrata: il predicato esiste ed è testato, nessun accesso passa attraverso di esso |

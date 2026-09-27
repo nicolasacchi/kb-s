@@ -227,6 +227,31 @@ scena, la manipola. Le quattro regole che rendono la scena degna di fiducia:
    cambiare camera e luce, e l'oggetto sottostante non cambia. Se la scena è l'unica
    rappresentazione, un aggiornamento del renderer cancella il materiale dello studente.
 
+## D16 · Un test fra due parti non è un test finché non usa il parser vero
+
+Questa è la regola che il progetto si è guadagnato sbagliando, e vale più di tutte le altre
+perché è quella che nessuna review a parti separate può trovare.
+
+Il banco confrontava la **tabella** dei fixture con la **resa** degli artifact. La resa consumata
+da `kbs_doc::parser` non era nel confronto da nessuna parte: nessun test nel workspace applicava
+il parser a un artifact prodotto dal banco. Il difetto che ne è uscito non era «due convenzioni
+diverse per `data-claim`»: era che **la terza parte non esisteva**. Tabella e resa si
+verificavano a vicenda, il confronto passava, e ogni claim del corpus finiva registrata come
+`clm_N`, con l'id al posto del fatto e senza span — cioè non citabile, tutte quante, senza che
+nessuno lo vedesse.
+
+> Un test fra due parti non può vedere il buco, perché **il buco è fra le parti**.
+
+Quindi: quando due parti producono un artefatto che una terza consuma, il test che le confronta
+deve passare dal **consumatore vero** — il parser, il validatore, il negozio — non da una ricerca
+di stringhe. Una ricerca di stringhe verifica che due tavole dicano la stessa cosa, che è
+esattamente ciò che due tavole sbagliate fanno.
+
+Lo stesso ragionamento vale per i commenti: un commento che asserisce una garanzia, e un test
+il cui nome parla del *registro* mentre asserisce l'*output*, sono la stessa forma di difetto. Il
+test ha il nome giusto e l'asserzione sbagliata, quindi fissa la metà sbagliata **senza dirlo**.
+
+
 ---
 
 ## Cosa `kb-s` non è
