@@ -176,4 +176,28 @@ mod tests {
         assert!(!v.can_publish());
         assert!(content_hash_of(&v).unwrap().starts_with("sha256:"));
     }
+
+    #[test]
+    fn una_dichiarazione_dell_anagrafe_sbagliata_e_nel_verdetto_e_non_nella_porta() {
+        // Il percorso vero: documento → `validate` → `rivedi`. Non si confronta
+        // una lista di codici con un'altra lista di codici (D16): si passa dal
+        // consumatore, che è il verdetto che la porta legge.
+        let v = rivedi(&format!(
+            concat!(
+                r#"<!doctype html><html lang="it"><head><title>T</title>"#,
+                r#"<meta name="dc.date" content="ieri">"#,
+                r#"<meta name="dc.publisher" content="Ministero">"#,
+                r#"</head><body><h1 id="t">T</h1>"#,
+                "<template id=\"kb-kbprompt\">{}</template></body></html>",
+            ),
+            kbs_doc::testing::contratto_buono()
+        ));
+        assert!(v.has_code("anagrafe-data-non-iso8601"));
+        assert!(v.has_code("anagrafe-elemento-non-registrato"));
+        assert!(
+            v.can_publish(),
+            "l'anagrafe non blocca niente: {:?}",
+            v.diagnostics.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()
+        );
+    }
 }

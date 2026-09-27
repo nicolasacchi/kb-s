@@ -975,7 +975,17 @@ fn emittente(dichiarato: Option<&String>, argument: &ArgumentId) -> Emitter {
 /// per estensione dei nomi di `kbs_doc::ContractError`: è l'unico posto in cui
 /// la traduzione vive, e i due elenchi non possono divergere senza che un
 /// `match` smetta di compilare.
+///
+/// I codici dell'anagrafe (`anagrafe-campo-vuoto`, `anagrafe-data-non-iso8601`,
+/// …) vengono da `kbs_doc::anagrafe::AnagrafeWarning` per estensione dei nomi,
+/// come quelli del contratto: un codice che il referto mostra e una variante
+/// dell'enum che lo produce non possono essere due elenchi.
+///
+/// Sono tutti non bloccanti, e questa traduzione li mette accanto agli altri
+/// avvisi: l'anagrafe entra nel verdetto come entra una claim non verificabile
+/// — una cosa che il docente vede nel referto e che nessuno subisce.
 pub fn code_of_doc_issue(code: &kbs_doc::IssueCode) -> &'static str {
+    use kbs_doc::anagrafe::AnagrafeWarning as A;
     use kbs_doc::contract::ContractError as C;
     use kbs_doc::IssueCode as I;
     match code {
@@ -993,6 +1003,12 @@ pub fn code_of_doc_issue(code: &kbs_doc::IssueCode) -> &'static str {
         I::HeadingCollision { .. } => "heading-collision",
         I::UnverifiableClaim { .. } => "unverifiable-claim",
         I::ConvertedFromMarkdown => "converted-from-markdown",
+        I::Anagrafe(A::CampoVuoto { .. }) => "anagrafe-campo-vuoto",
+        I::Anagrafe(A::TitoloInConflitto { .. }) => "anagrafe-titolo-in-conflitto",
+        I::Anagrafe(A::LinguaInConflitto { .. }) => "anagrafe-lingua-in-conflitto",
+        I::Anagrafe(A::LinguaMalformata { .. }) => "anagrafe-lingua-malformata",
+        I::Anagrafe(A::DataNonIso8601 { .. }) => "anagrafe-data-non-iso8601",
+        I::Anagrafe(A::ElementoNonRegistrato { .. }) => "anagrafe-elemento-non-registrato",
     }
 }
 

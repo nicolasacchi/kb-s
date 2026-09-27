@@ -399,3 +399,120 @@ fn la_build_inline_il_foglio_di_stile_e_produce_un_file_unico() {
     assert!(out.budget.unresolved().is_empty());
     assert!(out.report.can_publish());
 }
+
+// ── L'anagrafe del materiale: sei elementi, zero costi, zero blocchi ─────────
+
+/// Un artifact con i `<meta>` dell'anagrafe indicati, sul documento buono.
+fn artifact_con_anagrafe(meta: &str) -> String {
+    artifact_buono().replace("</head>", &format!("{meta}</head>"))
+}
+
+#[test]
+fn un_artifact_senza_un_solo_meta_ha_un_archivio_completo_e_silenzioso() {
+    // Il caso da novanta volte su cento: il docente non ha scritto niente. Il
+    // sistema non chiede niente, non deduce niente di inventato, e non dice
+    // una parola: tre elementi arrivano dal documento, tre restano assenti, e
+    // l'assenza è uno stato e non un avviso.
+    let src = artifact_con_anagrafe("<meta name=\"kb-argument\" content=\"letture/01-x.html\">");
+    let report = validate::inspect(&src);
+    let a = &report.anagrafe;
+
+    assert_eq!(a.value("dc.title"), Some("Continuità e continuità uniforme"));
+    assert_eq!(a.value("dc.language"), Some("it"));
+    assert_eq!(a.value("dc.identifier"), Some("letture/01-x.html"));
+    for nome in ["dc.creator", "dc.date", "dc.rights"] {
+        let c = a.get(nome).expect("l'elemento è nel registro anche se manca");
+        assert_eq!(c.origine, kbs_doc::Origine::Assente, "{nome} non è dedotto e non c'è");
+    }
+    assert!(a.dichiarati().next().is_none());
+    assert!(!report
+        .warnings()
+        .any(|i| matches!(i.code, IssueCode::Anagrafe(_))));
+    assert!(report.can_publish());
+}
+
+#[test]
+fn l_anagrafe_dichiara_chi_sono_quando_il_docente_lo_dice_e_il_documento_lo_conferma() {
+    let src = artifact_con_anagrafe(concat!(
+        r#"<meta name="kb-argument" content="letture/01-x.html">"#,
+        r#"<meta name="dc.creator" content="Anna Rossi">"#,
+        r#"<meta name="dc.date" content="2026-09-26">"#,
+        r#"<meta name="dc.rights" content="Uso didattico in classe, CC BY-SA 4.0">"#,
+    ));
+    let report = validate::inspect(&src);
+    let a = &report.anagrafe;
+
+    assert_eq!(a.value("dc.creator"), Some("Anna Rossi"));
+    assert_eq!(a.value("dc.date"), Some("2026-09-26"));
+    assert!(a.value("dc.rights").unwrap().contains("CC BY-SA"));
+    assert_eq!(a.dichiarati().count(), 3, "tre dichiarati, tre dedotti");
+    assert!(!report
+        .warnings()
+        .any(|i| matches!(i.code, IssueCode::Anagrafe(_))));
+}
+
+#[test]
+fn un_elemento_dichiarato_e_sbagliato_e_un_avviso_e_l_artifact_si_pubblica_lo_stesso() {
+    let src = artifact_con_anagrafe(concat!(
+        r#"<meta name="dc.title" content="Continuità uniforme">"#, // ≠ <title>
+        r#"<meta name="dc.date" content="26 settembre 2026">"#,
+        r#"<meta name="dc.subject" content="funzioni">"#, // fuori registro
+    ));
+    let report = validate::inspect(&src);
+    let avvisi: Vec<String> = report
+        .warnings()
+        .filter_map(|i| match &i.code {
+            IssueCode::Anagrafe(w) => Some(w.to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(avvisi.len(), 3, "{avvisi:?}");
+    assert!(report.can_publish(), "l'anagrafe non blocca niente");
+    assert!(
+        !report.blocking().any(|i| matches!(i.code, IssueCode::Anagrafe(_))),
+        "nessun avviso dell'anagrafe è bloccante"
+    );
+}
+
+#[test]
+fn il_record_di_un_artifact_torna_da_se_stesso_passando_dai_meta() {
+    // Il round-trip è la metà della specifica: l'anagrafe esiste perché il
+    // materiale del docente sia recuperabile, e un record che si sa leggere ma
+    // non si sa riscrivere è decorazione. Il confronto passa dal parser vero.
+    let src = artifact_con_anagrafe(concat!(
+        r#"<meta name="kb-argument" content="letture/01-x.html">"#,
+        r#"<meta name="dc.creator" content="Anna Rossi">"#,
+        r#"<meta name="dc.date" content="2026-09-26">"#,
+    ));
+    let prima = validate::inspect(&src).anagrafe;
+    let meta = prima
+        .to_metas()
+        .iter()
+        .map(|(n, v)| format!("<meta name=\"{n}\" content=\"{v}\">"))
+        .collect::<String>();
+    // Il percorso resta nel documento: `dc.identifier` è **dedotto** da
+    // `kb-argument`, e riscrivere il documento senza di esso cambierebbe
+    // l'ambiente in cui il record viene letto. Il round-trip che si verifica
+    // è quello del record, non quello dell'ambiente.
+    let riscritto = artifact_con_anagrafe(&format!(
+        r#"<meta name="kb-argument" content="letture/01-x.html">{meta}"#
+    ));
+    let dopo = validate::inspect(&riscritto).anagrafe;
+    assert_eq!(prima, dopo, "il record che esce torna identico a quello che entra");
+}
+
+#[test]
+fn il_record_si_scrive_anche_in_front_matter_e_torna_da_li() {
+    // La stessa chiave, nella forma in cui il docente la scrive: il
+    // front-matter è il nome del meta com'è, senza un secondo vocabolario in
+    // mezzo.
+    let a = validate::inspect(&artifact_con_anagrafe(r#"<meta name="dc.creator" content="Anna Rossi">"#))
+        .anagrafe;
+    let md = format!(
+        "---\ntitle: Continuità e continuità uniforme\n{}---\n\ntesto\n",
+        a.to_front_matter()
+    );
+    let r = validate::inspect(&markdown::convert(&md).html);
+    assert_eq!(r.anagrafe.value("dc.creator"), Some("Anna Rossi"));
+    assert_eq!(r.anagrafe.value("dc.title"), Some("Continuità e continuità uniforme"));
+}

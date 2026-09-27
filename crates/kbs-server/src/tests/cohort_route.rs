@@ -113,6 +113,11 @@ async fn un_segnale_sopra_soglia_esce_e_uno_sotto_no() {
                             correct: false,
                         },
                         judged_by: None,
+                        // Senza aiuto: il segnale di coorte conta la vista
+                        // `unaided_observations`, e un fallimento assistito non
+                        // dice «questa classe non sa».
+                        unaided: Some(true),
+                        n_hints: Some(0),
                         at: Millis(1_700_000_000_000),
                     },
                 )?)

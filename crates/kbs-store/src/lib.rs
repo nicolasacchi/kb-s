@@ -77,6 +77,14 @@
 //!   leggono tutto; chi ha emesso un giudizio legge **il proprio**. Vedi il doc
 //!   di `registers`, che spiega perché la differenza è una relazione e non un
 //!   dettaglio di implementazione.
+//! * **il registro delle dimostrazioni** ([`Store::observations_for`]) ha una
+//!   regola in più, e non è una variante: lo studente che guarda il proprio
+//!   registro legge dalla vista `unaided_observations`, chi insegna dalla
+//!   tabella. La vista è definita in `V6__unaided.sql` e la sua definizione
+//!   contiene `WHERE unaided = 1`: qui dentro c'è il nome della relazione, non
+//!   la frase. «Lo studente vede solo le osservazioni non assistite, mai la coda
+//!   di practice» è una riga che, se sta in una rotta, è un filtro che marcisce;
+//!   se sta in una vista, è una parte del file che il database porta con sé.
 //!
 //! I due limiti di quel modello, dichiarati perché sono i prossimi a venire
 //! letti: i **ruoli non esistono** (D5 li vieta come oggetto memorizzato: sono un
@@ -113,6 +121,8 @@
 mod codec;
 mod error;
 pub mod italian;
+pub mod padronanza;
+pub mod calendario;
 mod publish;
 mod registers;
 mod schema;

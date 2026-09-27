@@ -378,6 +378,12 @@ pub fn osservazioni() -> Vec<kbs_core::Observation> {
                     instance: ist.seed.clone(),
                     correct: true,
                 },
+                // Il banco è un esercizio a risposta chiusa e nessuna pista è
+                // disponibile: `unaided = 1` e zero indizi sono una misura, non
+                // un default. Le righe senza questa dichiarazione sarebbero
+                // «aiuto ignoto» e non conterrebbero in nessuna quota.
+                unaided: Some(true),
+                n_hints: Some(0),
                 judged_by: s
                     .esercizi
                     .iter()

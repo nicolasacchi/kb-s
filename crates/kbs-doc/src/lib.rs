@@ -14,6 +14,7 @@
 //! | [`validate`] | tutto ciò che impedisce a un file di essere pubblicato |
 //! | [`build`] | l'artefatto spedito, e il budget con i due conti separati |
 //! | [`markdown`] | il materiale preesistente, convertito e **dichiarato** |
+//! | [`anagrafe`] | l'anagrafe del materiale: sei elementi Dublin Core, nessuno bloccante |
 //!
 //! # La regola che questo crate esiste per applicare
 //!
@@ -39,6 +40,7 @@
 //! invece di `## LIMITE` deve leggere «intestazione sconosciuta `LIMITI`: le otto
 //! sezioni sono GUARDIAN, PREREQUISITI, …», non «errore di parsing».
 
+pub mod anagrafe;
 pub mod build;
 pub mod contract;
 pub mod error;
@@ -55,6 +57,7 @@ pub mod validate;
 #[cfg(test)]
 mod claims;
 
+pub use anagrafe::{Anagrafe, AnagrafeWarning, Campo, Deduzione, Origine, ELEMENTI};
 pub use build::{build, BuildOptions, BuildOutput, Budget, Gate, Resolver};
 pub use contract::{ContractError, ContractReport, HARD_CAP, SECTIONS};
 pub use error::DocError;

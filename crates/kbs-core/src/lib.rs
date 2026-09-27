@@ -335,6 +335,31 @@ pub struct Observation {
     /// `None` significa «non ancora giudicato», non «non giudicabile»: la
     /// distinzione è ciò che rende il registro uno stato e non una casella di testo.
     pub judged_by: Option<GraderKind>,
+
+    /// `Some(true)` = nessun aiuto disponibile. `None` = **non registrato**.
+    ///
+    /// È la colonna che distingue il sistema da una bottiglia con i fantasmi:
+    /// senza di essa il registro delle dimostrazioni misura **interazione**, e
+    /// «ha lavorato» non è «sa». Con essa la quota della claim — gli argomenti
+    /// che passano da non dimostrato a dimostrato — ha un numeratore che non
+    /// contiene la coda di practice.
+    ///
+    /// **`None` non è `Some(false)`, e non è un `DEFAULT 1`.** Le righe scritte
+    /// prima della colonna esistono hanno un aiuto che il sistema non ha mai
+    /// chiesto e non può sapere: dichiararle non assistite sarebbe una
+    /// padronanza retroattiva, dichiararle assistite sarebbe un'altra
+    /// dichiarazione. Il motivo per cui il campo è opzionale e non
+    /// `bool` con un default è scritto per intero nella migrazione
+    /// `V6__unaided.sql`, che è anche il posto in cui la decisione va rileggiata.
+    pub unaided: Option<bool>,
+    /// Quante piste lo studente aveva disponibili, quando lo si è contato.
+    ///
+    /// `None` = non contato, che non è la stessa cosa di `Some(0)`: `0` è la
+    /// misura «nessuna pista disponibile», e una misura che non è stata fatta
+    /// non è uno zero. Il database vieta la combinazione ambigua — un conteggio
+    /// dichiarato per un'osservazione di cui si ignora se le piste fossero
+    /// disponibili — e il trigger che la vieta è nella stessa migrazione.
+    pub n_hints: Option<u32>,
     pub at: Millis,
 }
 

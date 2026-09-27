@@ -11,6 +11,24 @@
 //! `may_read` e accodarli a `may_read` con la scusa che «è la stessa cosa»
 //! farebbe di `may_read` una funzione che risponde a due domande diverse.
 //!
+//! # La risposta di uno studente non contiene la coda di practice
+//!
+//! *Lo studente vede solo le osservazioni non assistite (`unaided = 1`), mai
+//! la coda di practice; il resto è del docente.* Qui sotto la rotta **non
+//! filtra niente** e non è il posto dove decidere: chiama
+//! [`kbs_store::Store::observations_for`], che sceglie la relazione in base
+//! alla stessa relazione di D5 che autorizza la lettura — la vista
+//! `unaided_observations` per lo studente, la tabella per chi insegna. Il
+//! predicato `unaided = 1` sta nella definizione della vista, in
+//! `V6__unaided.sql`, e non in questo file.
+//!
+//! Il motivo di non averlo qui è che un filtro in una rotta è un filtro che
+//! marcisce: la prossima rotta che legge il registro non lo copia, e nessun
+//! test che asserisce «la rotta è stata chiamata» se ne accorge. Il test che
+//! c'è asserisce che **il corpo della risposta** non contiene l'id di una riga
+//! assistita, che è la proprietà che chi riceve la risposta può verificare da
+//! sé.
+//!
 //! Qui non si decide nulla: si chiama il metodo gated e si traduce
 //! l'errore. Il `404` di un registro che non si può leggere è lo stesso `404` di
 //! un argomento che non si può leggere, per la stessa ragione: nessuno dei due

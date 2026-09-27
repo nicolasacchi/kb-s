@@ -112,6 +112,14 @@ pub enum Error {
     #[error("l'argomento `{id}` non esiste, o non lo vedi: un evento di generazione ha bisogno del materiale che ha generato, e una riga senza argomento è una riga orfana")]
     ArgomentoAssente { id: String },
 
+    // ── il tentativo non assistito: la riga che alimenta la claim ───────────
+
+    #[error("l'esercizio `{esercizio}` non ha l'istanza `{istanza}`: il generatore non l'ha prodotta, e `Evidence::Checked` su un'istanza che non esiste è una prova che non si può aprire")]
+    IstanzaAssente { esercizio: String, istanza: String },
+
+    #[error("l'esercizio `{id}` non esiste, o non lo vedi: le due risposte sono la stessa perché distinguerle sarebbe un canale per imparare che cosa c'è in un corso, e l'esercizio porta l'argomento su cui la dimostrazione verrebbe registrata")]
+    EsercizioAssente { id: String },
+
     #[error("la persona `{id}` ({ruolo}) non è nel registro: le persone si iscrivono, e `upsert_person` sovrascriverebbe il nome di chi c'è già con un id — quindi questa strada non le crea da sola")]
     PersonaAssente { id: String, ruolo: &'static str },
 
@@ -151,6 +159,8 @@ impl Error {
             Error::VerdettoBloccante { .. } => "verdetto-bloccante",
             Error::LockIncompleto { .. } => "lock-incompleto",
             Error::DiagnosiAssente { .. } => "diagnosi-assente",
+            Error::IstanzaAssente { .. } => "istanza-assente",
+            Error::EsercizioAssente { .. } => "esercizio-assente",
             Error::Uso(_) => "uso",
             Error::ComandoSconosciuto { .. } => "comando-sconosciuto",
             Error::OpzioneMancante { .. } => "opzione-mancante",

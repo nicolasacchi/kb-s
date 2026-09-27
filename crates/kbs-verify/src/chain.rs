@@ -654,6 +654,8 @@ mod tests {
                 correct: seq % 3 != 0,
             },
             judged_by: Some(GraderKind::Deterministic),
+            unaided: Some(seq % 4 != 3),
+            n_hints: Some(if seq % 4 == 3 { 2 } else { 0 }),
             at: Millis(1_700_000_000_000 + seq as i64),
         }
     }

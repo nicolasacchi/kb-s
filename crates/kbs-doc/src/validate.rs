@@ -23,9 +23,16 @@
 //!   poter sapere che non ha la stessa garanzia di uno scritto in HTML (D14).
 //! * una sezione di contratto sopra il suo budget: c'è un margine di 1920 byte
 //!   per questo.
+//! * un elemento dell'anagrafe dichiarato e sbagliato ([`crate::anagrafe`]):
+//!   l'anagrafe «non blocca niente», e il motivo è che un campo di metadata non
+//!   è una condizione di pubblicabilità. **Nessun** avviso dell'anagrafe è mai
+//! bloccante, e `nessuna_diagnostica_dell_anagrafe_blocca` lo verifica: un
+//! validatore che blocca su un campo che il docente ha scritto a mano sta
+//! decidendo che il suo materiale non è materiale.
 
 use serde::{Deserialize, Serialize};
 
+use crate::anagrafe::{self, Anagrafe, AnagrafeWarning};
 use crate::contract::{self, ContractError, ContractReport};
 use crate::offbox::{self, Origin};
 use crate::parser::{self, ParsedArtifact};
@@ -78,6 +85,10 @@ pub enum IssueCode {
     UnverifiableClaim { claim_id: String, reason: String },
     /// L'artifact dichiara di essere stato convertito da markdown (D14).
     ConvertedFromMarkdown,
+    /// Un elemento dell'anagrafe dichiarato e sbagliato, o un `dc.…` che
+    /// questa anagrafe non legge. Sempre `Warning`: vedi il modulo
+    /// [`crate::anagrafe`].
+    Anagrafe(AnagrafeWarning),
 }
 
 /// L'esito della validazione di un artifact.
@@ -86,6 +97,14 @@ pub struct ArtifactReport {
     pub parsed: ParsedArtifact,
     /// `None` se l'artifact non ha nessuno slot del contratto.
     pub contract: Option<ContractReport>,
+    /// L'anagrafe del materiale, letta dagli stessi `<meta>` del documento.
+    ///
+    /// Sta **nel rapporto** e non in una tabella per una ragione che è la
+    /// stessa di D12: il corpus è una cartella di file e l'uscita è `rm -rf`.
+    /// Una copia dell'anagrafe in un database sarebbe una seconda verità che
+    /// il backup del database deve tenere allineata al file, e che nessuno
+    /// rilegge; il file, invece, la porta con sé e la porta fuori.
+    pub anagrafe: Anagrafe,
     pub issues: Vec<Issue>,
 }
 
@@ -217,8 +236,17 @@ pub fn inspect(src: &str) -> ArtifactReport {
                 .to_string(),
         ));
     }
+    // L'anagrafe si legge e si avvisa **alla fine**, e sempre come `Warning`:
+    // l'ordine è quello che rende leggibile il referto (prima ciò che blocca,
+    // poi ciò che va detto), e la severità è l'unica cosa che l'anagrafe non
+    // negozia. Un elemento assente non produce niente: vedi
+    // `crate::anagrafe`.
+    for w in anagrafe::ispeziona(&parsed) {
+        issues.push(Issue::warning(IssueCode::Anagrafe(w.clone()), w.to_string()));
+    }
+    let anagrafe = anagrafe::read(&parsed);
 
-    ArtifactReport { parsed, contract, issues }
+    ArtifactReport { parsed, contract, anagrafe, issues }
 }
 
 /// Il primo problema che impedisce la pubblicazione, se c'è.
@@ -356,6 +384,49 @@ mod tests {
             i.code,
             IssueCode::Contract(ContractError::SectionOverBudget { .. })
         )));
+    }
+
+    #[test]
+    fn nessuna_diagnostica_dell_anagrafe_blocca() {
+        // Tutti i modi in cui l'anagrafe può avvisare, insieme: un elemento
+        // vuoto, un titolo che contraddice il documento, una lingua che non è
+        // un tag più una che contraddice il documento, una data che non è ISO,
+        // e un `dc.` che questa anagrafe non legge. L'artifact è pubblicabile
+        // in tutti i casi, e questa è la regola che il modulo dichiara:
+        // l'anagrafe «non blocca niente».
+        let src = format!(
+            r#"{}<meta name="kb-argument" content="letture/01-x.html">
+<meta name="dc.creator" content=" ">
+<meta name="dc.title" content="Un altro titolo">
+<meta name="dc.language" content="Italian">
+<meta name="dc.date" content="ieri">
+<meta name="dc.publisher" content="Ministero">"#,
+            buono().replace("</head>", "")
+        );
+        let r = inspect(&src);
+        let avvisi: Vec<&Issue> = r
+            .warnings()
+            .filter(|i| matches!(i.code, IssueCode::Anagrafe(_)))
+            .collect();
+        assert_eq!(avvisi.len(), 6, "{:#?}", avvisi);
+        assert!(r.can_publish(), "l'anagrafe non è una condizione di pubblicabilità");
+        assert!(
+            !r.blocking().any(|i| matches!(i.code, IssueCode::Anagrafe(_))),
+            "nessun avviso dell'anagrafe è bloccante"
+        );
+    }
+
+    #[test]
+    fn l_anagrafe_viaggia_nel_rapporto_che_giudica_il_documento() {
+        let r = inspect(
+            &buono().replace("</head>", r#"<meta name="dc.creator" content="Anna"></head>"#),
+        );
+        assert_eq!(r.anagrafe.value("dc.creator"), Some("Anna"));
+        assert_eq!(r.anagrafe.value("dc.title"), Some("Titolo"));
+        assert_eq!(r.anagrafe.value("dc.language"), Some("it"));
+        // E l'artifact più semplice del mondo non ha bisogno di dichiarare
+        // niente per avere un'archivio: questo è il caso da zero digitare.
+        assert!(inspect(&buono()).anagrafe.dichiarati().next().is_none());
     }
 
     #[test]

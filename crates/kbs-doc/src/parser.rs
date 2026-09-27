@@ -174,6 +174,16 @@ impl ParsedClaim {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedArtifact {
     pub title: Option<String>,
+    /// L'attributo `lang` di `<html>`: la lingua **che il documento dichiara**,
+    /// non quella che il sistema deduce dal testo. È la base da cui
+    /// [`crate::anagrafe`] deduce `dc.language`, e la ragione per cui il
+    /// campo esiste: la lingua dichiarata è un atto dell'autore, e
+    /// un archivio che la deduce da solo sta indovinando.
+    ///
+    /// `default` perché un `ParsedArtifact` serializzato prima che il campo
+    /// esistesse deve continuare a rileggersi.
+    #[serde(default)]
+    pub lang: Option<String>,
     /// `<meta name=…>` e `<meta property=…>`, per nome. `BTreeMap` perché
     /// l'ordine dei meta non deve cambiare l'hash di un artifact che l'ha solo
     /// riscritto in ordine diverso.
@@ -220,6 +230,18 @@ pub fn parse(src: &str) -> ParsedArtifact {
         .next()
         .map(|e| collapse(&text_of(*e.deref())))
         .filter(|t| !t.is_empty());
+
+    // La lingua che il documento **dichiara**: l'attributo `lang` di `<html>`,
+    // non una deduuzione dal testo. Si legge qui perché i `<meta>` sono già
+    // raccolti subito sotto e l'attributo sta sulla radice: due letture
+    // diverse dello stesso documento, una per i meta e una per l'HTML, perché
+    // sono due cose diverse.
+    let lang = doc
+        .select(&sel.html)
+        .next()
+        .and_then(|e| e.value().attr("lang"))
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
 
     let mut meta = BTreeMap::new();
     for e in doc.select(&sel.meta) {
@@ -281,6 +303,7 @@ pub fn parse(src: &str) -> ParsedArtifact {
 
     ParsedArtifact {
         title,
+        lang,
         meta,
         headings: acc.headings,
         heading_collisions,
@@ -297,6 +320,7 @@ struct Selectors {
     title: Selector,
     meta: Selector,
     body: Selector,
+    html: Selector,
     contract: Selector,
 }
 
@@ -309,6 +333,7 @@ impl Selectors {
             title: s("title"),
             meta: s("meta"),
             body: s("body"),
+            html: s("html"),
             contract: s(&format!("template[id=\"{CONTRACT_SLOT}\"]")),
         }
     }

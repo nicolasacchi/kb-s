@@ -67,6 +67,18 @@ fn riga(n: u32, s: &School, argomento: &ArgumentId) -> ObservationDraft {
             1 => Some(GraderKind::Deterministic),
             _ => Some(GraderKind::Teacher),
         },
+        // Il banco alterna, e serve che alterni: `observations_in_session` legge
+        // la **tabella**, perché una catena costruita sul solo sottoinsieme non
+        // assistito non è una catena corteggiata. Se la superficie non assistita
+        // contenesse già tutte le righe, questa verifica non proverebbe niente.
+        unaided: match n % 3 {
+            2 => Some(false),
+            _ => Some(true),
+        },
+        n_hints: match n % 3 {
+            2 => Some(3),
+            _ => Some(0),
+        },
         at: Millis(T0 + n as i64),
     }
 }

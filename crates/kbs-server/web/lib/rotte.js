@@ -34,6 +34,13 @@ export const ROTTE = {
   // Coorte (D9). Sotto soglia risponde `{"signals": []}` e non un altro corpo.
   coorte: "/api/v1/arguments/{id}/cohort",
 
+  // Calendario e metro (idee 11 e 12). Il calendario è la coda di richiamo del
+  // docente; il metro è il rendiconto di quella coda, e la sua quota è
+  // l'aggregato di D9: sotto soglia risponde `{"quota": null}`.
+  calendario: "/api/v1/courses/{corso}/calendario",
+  padronanza: "/api/v1/courses/{corso}/padronanza",
+  quotaPadronanza: "/api/v1/courses/{corso}/padronanza/quota",
+
   // Ricerca: restituisce `{argument, course, rank}` e **nessun testo** (vedi
   // `api.js`, che è costretto a riprendere l'argomento con una seconda chiamata).
   ricerca: "/api/v1/search",

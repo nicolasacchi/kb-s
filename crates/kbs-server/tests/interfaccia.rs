@@ -233,6 +233,10 @@ fn scuola() -> Scuola {
                         correct: n >= 5,
                     },
                     judged_by: Some(kbs_core::GraderKind::Deterministic),
+                    // Compito a risorse chiuse, nessuna pista: è il caso che il
+                    // segnale di coorte conta e che lo studente vede.
+                    unaided: Some(true),
+                    n_hints: Some(0),
                     at: Millis(T0),
                 },
             )?;
@@ -471,6 +475,50 @@ fn rotte_dall_interfaccia() -> Vec<(String, String)> {
     rotte
 }
 
+/// Ogni file dell'interfaccia, con il suo nome relativo e il suo testo.
+fn file_come_escaped() -> Vec<(String, String)> {
+    let radice = radice_web();
+    let mut fuori = Vec::new();
+    let mut stack = vec![radice.clone()];
+    while let Some(dir) = stack.pop() {
+        for voce in std::fs::read_dir(&dir).expect("la directory dell'interfaccia si legge") {
+            let voce = voce.expect("una voce della directory");
+            let percorso = voce.path();
+            if percorso.is_dir() {
+                stack.push(percorso);
+                continue;
+            }
+            if percorso.extension().and_then(|e| e.to_str()) != Some("js") {
+                continue;
+            }
+            let testo = std::fs::read_to_string(&percorso).expect("un file .js si legge");
+            let nome = percorso
+                .strip_prefix(&radice)
+                .unwrap_or(&percorso)
+                .display()
+                .to_string();
+            fuori.push((nome, testo));
+        }
+    }
+    fuori.sort();
+    fuori
+}
+
+/// La stringa fra apici all'inizio di un pezzo di JavaScript, se c'è.
+fn nome_in_apici(s: &str) -> Option<&str> {
+    let q = s.chars().next()?;
+    if q != '"' && q != '\'' {
+        return None;
+    }
+    let dentro = &s[1..];
+    let fine = dentro.find(q)?;
+    let nome = &dentro[..fine];
+    // Solo un nome: un chiamato che passa un'espressione non è una rotta
+    // dichiarabile, e guardarlo non aggiunge niente.
+    (!nome.is_empty() && nome.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .then_some(nome)
+}
+
 /// Sostituisce i segnaposto con id concreti di questa scuola.
 fn con_id(modello: &str, scuola: &Scuola) -> String {
     modello
@@ -654,7 +702,17 @@ async fn ogni_rotta_dell_interfaccia_e_una_rotta_del_server() {
     let rotte = rotte_dall_interfaccia();
 
     for (nome, modello) in &rotte {
-        let uri = con_id(modello, &scuola);
+        // Una rotta con un parametro obbligatorio va interrogata come
+        // l'interfaccia la interroga, non come la interrogherebbe un
+        // sondatore che non l'ha letta. `quotaPadronanza` esige `cohort`:
+        // «la quota di quale classe?» è una domanda a cui si può rispondere
+        // con qualunque numero, e `padronanza.js:223` lo manda. Interrogarla
+        // nuda darebbe `400` — che qui è la prova che il percorso esiste, non
+        // che sia sbagliato.
+        let mut uri = con_id(modello, &scuola);
+        if nome == "quotaPadronanza" {
+            uri.push_str("?cohort=2A");
+        }
         let risposta = scuola.get(&uri, &scuola.docente).await;
         let status = risposta.status();
 
@@ -689,16 +747,40 @@ async fn ogni_rotta_dell_interfaccia_e_una_rotta_del_server() {
     }
 
     // E nessun modulo dell'interfaccia può chiamare una rotta che `ROTTE` non
-    // dichiara senza che questo test se ne accorga: è la stessa tabella che il
-    // browser usa, letta dal file.
-    for nome in [
-        "salute", "argomenti", "argomento", "claim", "coda", "ratifica", "pubblica", "ritira",
-        "osservazioni", "giudizi", "coorte", "ricerca", "export", "eventi", "three",
-    ] {
-        assert!(
-            rotte.iter().any(|(n, _)| n == nome),
-            "`{nome}` è una rotta che questa interfaccia usa e che `rotte.js` non dichiara più"
-        );
+    // dichiara. I nomi si **leggono dal sorgente**, non si scrivono qui: un
+    // elenco a mano è restato verde per tre rotte che non lo conteneva, e ha
+    // quindi lasciato passare `get("quota_padronanza")` contro una
+    // `ROTTE.quotaPadronanza` — un `throw` a runtime, invisibile finché nessuno
+    // apre quella pagina.
+    //
+    // Il punto prima di `get` esclude `URLSearchParams.get`, che ha la stessa
+    // firma e non chiede una rotta.
+    let dichiarate: Vec<&str> = rotte.iter().map(|(n, _)| n.as_str()).collect();
+    for (file, testo) in file_come_escaped() {
+        for (n_riga, riga) in testo.lines().enumerate() {
+            for verbo in ["get", "post", "scarica"] {
+                let ago = format!("{verbo}(");
+                let mut da = 0;
+                while let Some(p) = riga[da..].find(&ago) {
+                    let assoluto = da + p;
+                    let dopo = riga[assoluto + ago.len()..].trim_start();
+                    let nome = if assoluto == 0 || !riga[..assoluto].ends_with('.') {
+                        nome_in_apici(dopo)
+                    } else {
+                        None
+                    };
+                    if let Some(nome) = nome {
+                        assert!(
+                            dichiarate.contains(&nome),
+                            "{file}:{} chiama `{verbo}` e `rotte.js` non dichiara \
+                             `{nome}`: a runtime `percorso` lancia e la pagina muore",
+                            n_riga + 1
+                        );
+                    }
+                    da = assoluto + ago.len();
+                }
+            }
+        }
     }
     assert!(
         rotte

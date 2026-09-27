@@ -7,13 +7,16 @@
 #![allow(dead_code)]
 
 mod catena;
+mod calendario;
 mod export;
 mod inventory;
 mod italian_search;
 mod publication;
+mod padronanza;
 mod registers;
 mod schema_guard;
 mod visibility;
+mod unaided;
 
 use kbs_core::{
     Argument, ArgumentId, CohortId, CourseId, Millis, ModelLock, Origin, PersonId,

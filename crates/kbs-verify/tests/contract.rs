@@ -33,6 +33,8 @@ fn obs(seq: u64, tag: &str) -> Observation {
             correct: seq % 2 == 0,
         },
         judged_by: Some(GraderKind::Deterministic),
+        unaided: Some(true),
+        n_hints: Some(0),
         at: Millis(1_700_000_000_000 + seq as i64),
     }
 }

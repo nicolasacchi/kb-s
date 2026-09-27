@@ -28,6 +28,38 @@
 //! headlights-off. [`ChainExport::observations`] e [`ChainExport::witness`] sono
 //! il viaggio di ritorno, e chi riceve il file fa con essi esattamente ciò che
 //! avrebbe fatto se fosse stato dentro il sistema — che è tutto il punto.
+//!
+//! # `unaided` e `n_hints` viaggiano in `row_json`, e non hanno una colonna
+//!
+//! Sono i due campi che rendono misurabile la claim del prodotto — *la quota di
+//! argomenti che passano da non dimostrato a dimostrato* — e sono gli ultimi due
+//! campi entrati in [`kbs_core::Observation`]. Portano in `row_json` come
+//! [`Evidence`] e `judged_by`, e **non** guadagnano una colonna fissa. Il motivo
+//! è uno solo, ed è che la decima colonna **è** la riga: ne porta il JSON
+//! canonico, e [`leaf_of`] è l'hash di esattamente quel testo. Una colonna
+//! `unaided` metterebte lo stesso fatto in due posti del file, e un file con due
+//! copie di un fatto è un file che può dire due cose diverse.
+//!
+//! Il caso è già scritto in questo file e vale per questa decisione:
+//! `at_millis` non viene duplicato nella nona colonna di una riga `observation`
+//! «perché la riga lo porta già, e duplicarlo qui aprirebbe la porta a due date
+//! che non coincidono». `unaided` è la stessa frase.
+//!
+//! La disciplina del modulo — dichiarata alla riga 116, sulle colonne del
+//! testimone: *una colonna inventata è peggio di una colonna vuota* — qui è
+//! soddisfatta dal payload e non da una colonna. Il test che la regola chiede,
+//! «la colonna è popolabile da ogni payload accettato?», ha una risposta che
+//! per `row_json` è sì e verificabile: **`unaided` è sempre presente nel JSON,
+//! dichiarato esplicitamente anche quando non è registrato.** `null` e «assente»
+//! sono due cose diverse nella forma canonica — la stessa proprietà che
+//! [`crate::canonical`] dichiara e che un test verifica — e quindi una riga con
+//! aiuto ignoto è **falsificabile**, non ambigua: chi ricalcola la foglia da un
+//! file in cui `unaided` è sparito ottiene un hash diverso da quello dichiarato,
+//! e l'errore è [`ExportError::RowLeafMismatch`], non una lettura comoda.
+//!
+//! Il costo di questa scelta è uno e va detto: chi riceve l'export legge
+//! `unaided` nel JSON, non in una colonna che si può indicizzare a mano. Chi
+//! vuole la colonna deve aprire la decima, ed è una riga di `serde_json`.
 
 use crate::canonical::{canonical_of, canonicalize_str, leaf_of, CanonicalError};
 use crate::chain::{Chain, ConsistencyProof, SegmentPlan, VerifyError};
@@ -803,6 +835,8 @@ mod tests {
                 correct: true,
             },
             judged_by: Some(GraderKind::Deterministic),
+            unaided: Some(seq % 5 != 4),
+            n_hints: Some(if seq % 5 == 4 { 2 } else { 0 }),
             at: Millis(1_700_000_000_000 + seq as i64),
         }
     }
@@ -871,6 +905,99 @@ mod tests {
         let back = ChainExport::from_text(&e.to_text()).unwrap();
         assert_eq!(back, e);
         assert_eq!(back.limits(), Limits::ALL);
+    }
+
+    /// Una riga con l'aiuto non registrato: è il caso che una migrazione
+    /// precedente alla colonna produce, ed è la riga che l'export deve
+    /// portare **dichiarando** che non lo sa.
+    fn ignota(seq: u64) -> Observation {
+        Observation {
+            unaided: None,
+            n_hints: None,
+            ..obs(seq, "ignota")
+        }
+    }
+
+    fn una_sessione(r: &[Observation]) -> ChainExport {
+        let s = SessionId::new("s");
+        ChainExport::of(
+            &[SessionExport {
+                session: &s,
+                rows: r,
+                plan: SegmentPlan::every(32),
+            }],
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn laiuto_ignoto_e_un_null_esplicito_e_non_un_campo_assente() {
+        // La disciplina del modulo è che una colonna vale solo se è popolata da
+        // ogni payload accettato. Per `row_json` la prova è che la chiave ci
+        // sta **anche quando non c'è niente da dire**: `null` è una
+        // dichiarazione, l'assenza è un buco, e nella forma canonica sono due
+        // cose diverse. Se la chiave sparisse, «aiuto ignoto» e «riga di una
+        // versione precedente della riga» diventerebbero la stessa cosa, che è
+        // esattamente la confusione che la colonna è venuta togliere.
+        let e = una_sessione(&[ignota(1)]);
+        let testo = e.to_text();
+        let riga = testo
+            .lines()
+            .find(|l| l.starts_with("observation|"))
+            .expect("riga di osservazione");
+        assert!(riga.contains("\"unaided\":null"), "{riga}");
+        assert!(riga.contains("\"n_hints\":null"), "{riga}");
+
+        let lette = ChainExport::from_text(&testo).unwrap().observations().unwrap();
+        assert_eq!(lette[0].1[0].unaided, None, "il viaggio di ritorno non inventa");
+        assert_eq!(lette[0].1[0].n_hints, None);
+    }
+
+    #[test]
+    fn laiuto_e_impegnato_dalla_foglia_e_non_e_una_dicitura() {
+        // Il punto per cui sta in `row_json` e non in una colonna: la foglia è
+        // l'hash di quel testo, quindi cambiare `unaided` cambia la foglia. Un
+        // file in cui la colonna dicesse «assistita» e la riga dicesse «non
+        // assistita» non potrebbe esistere; un file in cui la stessa informazione
+        // sta in due posti sì.
+        let base = obs(1, "x");
+        let assistita = Observation {
+            unaided: Some(false),
+            n_hints: Some(3),
+            ..base.clone()
+        };
+        let non_assistita = Observation {
+            unaided: Some(true),
+            n_hints: Some(0),
+            ..base.clone()
+        };
+        assert_ne!(leaf_of(&assistita).unwrap(), leaf_of(&non_assistita).unwrap());
+        assert_ne!(leaf_of(&base).unwrap(), leaf_of(&ignota(1)).unwrap());
+
+        // E chi riceve il file vede la differenza, perché le righe viaggiano: due
+        // righe che si distinguono solo per `unaided` hanno id e `seq` diversi,
+        // altrimenti la catena le rifiuterebbe come duplicati.
+        let a = Observation {
+            id: "obs-assistita".into(),
+            seq: SeqInSession(1),
+            unaided: Some(false),
+            n_hints: Some(3),
+            ..obs(0, "z")
+        };
+        let b = Observation {
+            id: "obs-non-assistita".into(),
+            seq: SeqInSession(2),
+            unaided: Some(true),
+            n_hints: Some(0),
+            ..obs(0, "z")
+        };
+        let e = una_sessione(&[a, b]);
+        let lette = ChainExport::from_text(&e.to_text()).unwrap().observations().unwrap();
+        let viste: Vec<Option<bool>> = lette[0].1.iter().map(|o| o.unaided).collect();
+        assert_eq!(viste, vec![Some(false), Some(true)]);
+        let indizi: Vec<Option<u32>> = lette[0].1.iter().map(|o| o.n_hints).collect();
+        assert_eq!(indizi, vec![Some(3), Some(0)]);
     }
 
     #[test]

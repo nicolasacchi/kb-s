@@ -174,6 +174,8 @@ async fn le_osservazioni_di_un_argomento_appaiono_a_chi_ha_diritto() {
                         correct: true,
                     },
                     judged_by: Some(GraderKind::Deterministic),
+                    unaided: Some(true),
+                    n_hints: Some(0),
                     at: kbs_core::Millis(1_700_000_000_000),
                 },
             )?;
@@ -196,4 +198,79 @@ async fn le_osservazioni_di_un_argomento_appaiono_a_chi_ha_diritto() {
         )
         .await;
     assert_eq!(risposta.status(), StatusCode::NOT_FOUND);
+}
+
+/// Lo studente che guarda il proprio registro **non vede la coda di practice**.
+///
+/// La prova è sul corpo della risposta, non sul fatto che la rotta sia stata
+/// chiamata: un test che asserisce «la rotta risponde 200» passa anche quando
+/// la risposta porta la coda di practice, che è il difetto che la regola
+/// vieta. Qui si asserisce che l'id della riga assistita **non c'è nel testo**,
+/// e che l'id della riga non assistita c'è.
+#[tokio::test]
+async fn il_registro_dello_studente_non_contiene_le_osservazioni_assistite() {
+    let mut scuola = Scuola::nuova();
+    let argomento = scuola.pubblicato(&scuola.corso.clone(), &scuola.docente.clone(), 2);
+    let id = argomento.id.clone();
+    let (pura, assistita) = scuola
+        .db
+        .write(|store| {
+            let sessione = store.open_session(kbs_store::Register::Observations, "test")?;
+            let comune = |n: &str, unaided: Option<bool>, n_hints: Option<u32>| {
+                kbs_store::ObservationDraft {
+                    id: n.into(),
+                    student: kbs_core::PersonId::fixture(3),
+                    course: kbs_core::CourseId::fixture(1),
+                    cohort: kbs_core::CohortId("2A".into()),
+                    argument: id.clone(),
+                    evidence: Evidence::Checked {
+                        exercise: "ex-1".into(),
+                        instance: format!("seed-{n}"),
+                        correct: true,
+                    },
+                    judged_by: Some(GraderKind::Deterministic),
+                    unaided,
+                    n_hints,
+                    at: kbs_core::Millis(1_700_000_000_000),
+                }
+            };
+            let pura = store.append_observation(&sessione, comune("obs-pura", Some(true), Some(0)))?;
+            let assistita = store.append_observation(
+                &sessione,
+                comune("obs-assistita", Some(false), Some(3)),
+            )?;
+            // E la riga che la migrazione produce da sé: precolumn, ignota.
+            store.append_observation(&sessione, comune("obs-ignota", None, None))?;
+            store.close_session(&sessione)?;
+            Ok((pura.id, assistita.id))
+        })
+        .expect("osservazioni");
+
+    let uri = format!("/api/v1/arguments/{}/observations", id.as_str());
+    let corpo = Scuola::testo(scuola.get(&uri, &scuola.studente).await).await;
+    assert!(corpo.contains(&pura), "la riga non assistita c'è: {corpo}");
+    assert!(
+        !corpo.contains(&assistita),
+        "la coda di practice è nel registro dello studente: {corpo}"
+    );
+    assert!(
+        !corpo.contains("obs-ignota"),
+        "una riga di aiuto ignoto è nel registro dello studente: {corpo}"
+    );
+
+    // Il docente insegna anche dalla coda di practice: la stessa rotta, la
+    // stessa risposta, e le tre righe. Una regola che funzionasse filtrando
+    // sul ruolo avrebbe tolto anche al docente, e questa è la metà del test.
+    //
+    // Il `?person=` non è un di più: senza, `WhoQuery::persona` dà l'identità,
+    // e l'identità del docente è il docente — che di osservazioni ne ha zero.
+    // La rotta lo dichiara: «un docente che guarda il registro di uno studente
+    // deve scriverlo». Chiedere «il registro» senza dire di chi è la domanda
+    // che dà un elenco vuoto, e un elenco vuoto qui significa «non ha lavorato
+    // su quell'argomento», che è un'altra informazione.
+    let uri_docente = format!("{uri}?person={}", scuola.studente.as_str());
+    let corpo_docente = Scuola::testo(scuola.get(&uri_docente, &scuola.docente).await).await;
+    assert!(corpo_docente.contains(&pura), "{corpo_docente}");
+    assert!(corpo_docente.contains(&assistita), "{corpo_docente}");
+    assert!(corpo_docente.contains("obs-ignota"), "{corpo_docente}");
 }

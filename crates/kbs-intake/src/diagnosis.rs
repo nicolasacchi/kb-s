@@ -149,6 +149,17 @@ pub fn registra(
         // è un giudizio sul materiale. Scegliere `Human` qui sarebbe dire che
         // l'interrogazione non è avvenuta.
         judged_by: Some(GraderKind::Teacher),
+        // Una diagnosi orale non sa nulla degli aiuti: il docente ha visto lo
+        // studente e `Evidence::Oral` non porta un conteggio di piste. Quindi
+        // `None` e non `Some(true)`: dichiarare che la diagnosi è avvenuta senza
+        // aiuto sarebbe un fatto che nessuno ha misurato, ed è la stessa
+        // ragione per cui la colonna non ha un `DEFAULT 1`. Se il docente sa che
+        // lo studente aveva una pista a disposizione, quella informazione si
+        // registra come una seconda osservazione, con la sua `unaided` — che è
+        // l'unico modo che il registro conosca per tenere due fatti distinti
+        // senza che uno dei due sia una versione dell'altro.
+        unaided: None,
+        n_hints: None,
         at: diagnosi.at,
     };
     Ok(store.append_observation(session, draft)?)

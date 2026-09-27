@@ -52,6 +52,7 @@ use crate::diagnosis::{self, Diagnosis};
 use crate::error::{Error, Result};
 use crate::gate::{self, Gate};
 use crate::prompt::{DiagnosisRef, GenerationRequest};
+use crate::pratica::{self, Tentativo};
 use crate::route::{self, Route, Verdict};
 use crate::scan;
 
@@ -142,6 +143,7 @@ VERBI:
     verify             indicizza una cartella e stampa il referto (D10.3)
     lock               stampa il lock di una richiesta, con i suoi byte (D10)
     diagnose           registra una diagnosi orale (D6, D10)
+    tenta              registra un tentativo non assistito: la riga `unaided = 1`
     generate           registra un lock e la sua generazione
     generations        gli eventi di generazione di un argomento
     ratify             ratifica per l'hash di contenuto corrente (D4)
@@ -238,6 +240,7 @@ fn dispatch(
         "ratify" => ratifica(args),
         "promote" => promuovi(args),
         "read" => leggi(args),
+        "tenta" => tenta(args),
         "mcp" => {
             let o = Opzioni::analizza(args)?;
             let by = o.una("person")?.map(|s| PersonId(s.to_string()));
@@ -250,7 +253,7 @@ fn dispatch(
         }
         altro => Err(Error::ComandoSconosciuto {
             nome: altro.to_string(),
-            noti: "capture, verify, lock, diagnose, generate, generations, ratify, promote, read, mcp, version, help",
+            noti: "capture, verify, lock, diagnose, tenta, generate, generations, ratify, promote, read, mcp, version, help",
         }),
     }
 }
@@ -516,6 +519,72 @@ fn diagnostica(args: &[String]) -> Result<serde_json::Value> {
         &mut store,
         diagnosi,
         "diagnosi orale dalla CLI",
+    )?)
+}
+
+/// Il tentativo non assistito: la riga che alimenta il numeratore della claim.
+///
+/// **`--aiuto` è obbligatoria e non ha un default.** `0` è la misura «nessuna
+/// pista servita dal sistema»; un valore assente è «non lo so», che è una riga
+/// diversa e va registrata altrove — ed è la ragione per cui la colonna
+/// `n_hints` è nullable e non `NOT NULL DEFAULT 0`. Un default a zero qui
+/// scriverebbe «nessuna pista disponibile» per ogni tentativo di cui nessuno ha
+/// contato niente, che è la dichiarazione retroattiva che `V6__unaided.sql`
+/// vieta per la colonna.
+///
+/// **`--esito` non viene ricalcolato qui.** È il verdetto del verificatore
+/// deterministico di `kbs-exercise`, e questo crate non lo rivaluta: una seconda
+/// copia del confronto è una seconda risposta alla stessa domanda. Vedi il doc
+/// di [`pratica`], che dichiara anche il punto in cui i due dovrebbero essere
+/// chiamati insieme e che oggi non esiste.
+///
+/// Il corpo della risposta è l'osservazione con il suo `seq`, il suo `unaided` e
+/// il suo `n_hints`: un agente che ha registrato un tentativo deve poter leggere
+/// dalla risposta che cosa è finito nel registro, senza rileggerlo.
+fn tenta(args: &[String]) -> Result<serde_json::Value> {
+    let o = Opzioni::analizza(args)?;
+    let by = persona(&o, "person")?;
+    let mut store = apri(&o)?;
+    registra_persona(&mut store, &by)?;
+    // Lo studente deve gia' essere nel registro, come per la diagnosi: questa
+    // strada non crea persone.
+    let studente = persona_presente(&store, &persona(&o, "student")?, "studente")?;
+    let aiuto: u32 = o
+        .richiesta("aiuto")?
+        .trim()
+        .parse()
+        .map_err(|_| {
+            Error::Uso(
+                "--aiuto e' un intero non negativo: e' un conteggio di piste servite dal sistema, e un conteggio che non e' stato fatto non e' uno zero"
+                    .to_string(),
+            )
+        })?;
+    let esito = match o.richiesta("esito")? {
+        "corretto" => true,
+        "sbagliato" => false,
+        altro => {
+            return Err(Error::Uso(format!(
+                "--esito e' `corretto` o `sbagliato`, non `{altro}`"
+            )))
+        }
+    };
+    let tentativo = Tentativo {
+        id: o.una("source")?.unwrap_or("").to_string(),
+        student: studente,
+        course: CourseId(o.richiesta("course")?.to_string()),
+        cohort: CohortId(o.richiesta("cohort")?.to_string()),
+        exercise: o.richiesta("exercise")?.to_string(),
+        instance: o.richiesta("instance")?.to_string(),
+        n_hints: aiuto,
+        correct: esito,
+        at: at(&o),
+    }
+    .with_derived_id();
+    json(pratica::registra_in_una_sessione(
+        &mut store,
+        &by,
+        tentativo,
+        "tentativo non assistito dalla CLI",
     )?)
 }
 

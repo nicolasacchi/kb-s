@@ -147,6 +147,18 @@ pub struct ObservationDraft {
     pub evidence: kbs_core::Evidence,
     pub judged_by: Option<kbs_core::GraderKind>,
     pub at: Millis,
+
+    /// Se l'aiuto era disponibile, con la stessa semantica di
+    /// [`kbs_core::Observation::unaided`]: `Some(true)` = nessun aiuto
+    /// disponibile, `None` = non registrato.
+    ///
+    /// Il campo è qui e non è dedotto, perché il registro non deduce un fatto
+    /// che nessuno gli ha detto: una riga con `None` entra lo stesso nel
+    /// registro, e il database vieta che si inventi un conteggio di piste per
+    /// una riga di cui si ignora la disponibilità dell'aiuto.
+    pub unaided: Option<bool>,
+    /// Quante piste erano disponibili. `None` = non contato, e non è `Some(0)`.
+    pub n_hints: Option<u32>,
 }
 
 /// Una valutazione **prima** che il registro le assegni il `seq`.

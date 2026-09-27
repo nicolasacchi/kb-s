@@ -84,8 +84,71 @@ codice. Un progetto che non elenca i propri buchi li ripete dentro se stesso.
   `kbs-server/tests/daemon.rs` prova il processo vero su una porta `:0` presa
   dal sistema operativo: salute, radice, `404` identici byte per byte a «non lo
   vedi», e il `SIGTERM`.
+- **`observations.unaided` e `observations.n_hints` (migrazione `V6`).** La
+  colonna che distingue il sistema da una bottiglia con i fantasmi: senza di
+  essa il registro delle dimostrazioni misura **interazione**, e «ha lavorato»
+  non è «sa». La claim del progetto — *la quota di argomenti che passano da non
+  dimostrato a dimostrato* — con questa colonna ha un numeratore che non
+  contiene la coda di practice; senza, non lo ha.
+  Le due colonne sono **senza `NOT NULL` e senza `DEFAULT`**, ed è una scelta:
+  SQLite non ammette `ADD COLUMN … NOT NULL` senza un `DEFAULT` diverso da
+  `NULL`, quindi la colonna sarebbe *obbligata* a dichiarare in anticipo un
+  giudizio su righe già scritte. `DEFAULT 1` dichiarerebbe una padronanza che
+  il sistema non ha mai misurato, e `DEFAULT 0` dichiarerebbe che ogni
+  osservazione passata era assistita: un'altra dichiarazione, non meno
+  infondata. `NULL` vuol dire **non registrato**: le righe precedenti alla colonna
+  escono fuori dal predicato `unaided = 1` per la logica a tre valori, e non
+  entrano in nessuna quota. Il costo è dichiarato nella migrazione.
+  `n_hints` è nullable per la stessa ragione — `n_hints = 0` è la misura
+  «nessuna pista disponibile», e un conteggio che non è stato fatto non è uno
+  zero — e un trigger vieta la combinazione ambigua: non si dichiara quante
+  piste c'erano per una riga di cui si ignora se ce n'era qualcuna.
+- **La regola «lo studente vede solo le osservazioni non assistite» sta nello
+  schema, non in una rotta.** È la vista `unaided_observations`, definita in
+  `V6__unaided.sql` con il suo `WHERE unaided = 1`. `kbs-store` sceglie la
+  relazione — vista per lo studente, tabella per chi insegna — con la stessa
+  relazione di D5 che autorizza la lettura, e non duplica la frase: un filtro
+  in una rotta è un filtro che marcisce, una vista è una parte del file che il
+  database porta con sé.
+- **Il segnale di coorte di D9 conta le osservazioni non assistite**, dalla
+  stessa vista. «Dove cade la classe» è una domanda su che cosa gli studenti
+  fanno senza aiuto: un tentativo assistito che è andato storto dice che
+  l'aiuto non è bastato, e metterlo fra «questa classe non sa il terzo
+  teorema» fa dire al docente una cosa che il registro non dice. Il numeratore
+  di D9 e la superficie dello studente prendono le righe dallo stesso posto e
+  non possono discordare.
+
+### Cambiato
+
+- **La foglia di ogni riga di `observations` cambia.** `leaf_of` impegna il JSON
+  canonico della riga intera, quindi aggiungere due campi a `Observation` cambia
+  l'hash delle righe già scritte. Una voce del testimone registrata **prima** di
+  `V6` non torna più con la testa ricalcolata, e `kbs-verify` lo dice invece di
+  nasconderlo. Non c'è modo di evitarlo senza escludere i campi nuovi dalla
+  foglia, e un campo escluso dalla foglia è un campo che un riscrittore può
+  cambiare senza pagarne.
+- **`record_cohort_signal` rifiuta i numeri dichiarati con la coda di practice
+  dentro**, con `CohortCountMismatch` che porta **entrambi** i numeri. Un
+  docente che aveva dichiarato `total` contando anche i tentativi assistiti
+  riceve un errore, non un silenzio: su un campo compilato il silenzio è il modo
+  più veloce per insegnare al chiamante che quel campo non esiste.
+- **L'export a colonne fisse non ha una colonna `unaided`, e non è una
+  dimenticanza.** La decima colonna, `row_json`, **è** la riga: ne porta il
+  JSON canonico, e la foglia ne è l'hash. Una colonna `unaided` metterebbe lo
+  stesso fatto in due posti del file, che è la ragione per cui anche
+  `at_millis` non viene duplicato. `unaided` è **sempre presente** nel payload,
+  dichiarato esplicitamente anche quando non è registrato: `null` e «assente»
+  sono due cose diverse nella forma canonica, e quindi una riga con aiuto ignoto
+  è falsificabile invece che ambigua.
 
 ### Corretto
+
+- `kbs-store` — `observations_for` **onora il predicato che dichiarava**: uno
+  `SoloMio` (chi ha emesso un giudizio su quello studente) era accettato e il
+  risultato buttato via, quindi un pari che aveva valutato leggeva anche le
+  righe che non lo riguardavano. Ora è `NotReadable`, come dice il doc del
+  modulo: lo scope del registro delle dimostrazioni è «lo studente o chi
+  insegna», e nient'altro.
 
 - `kbs-doc` — `ContractReport::require` non fa più panic su uno stato che il
   tipo consente. «Un contratto troncato non è eseguibile» è una disgiunzione, e

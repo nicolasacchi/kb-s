@@ -238,10 +238,17 @@ fn assemble(
     s.push_str("<!DOCTYPE html>\n<html lang=\"it\">\n<head>\n<meta charset=\"utf-8\">\n");
     let _ = writeln!(s, "<title>{}</title>", escape(title.as_deref().unwrap_or("Senza titolo")));
     for (k, v) in front {
-        // Una chiave che già dice `kb-` non diventa `kb-kb-`: il front-matter
-        // scrive il nome del meta com'è, e raddoppiare il prefisso renderebbe
-        // `kb-course` irraggiungibile.
-        let nome = if k.starts_with("kb-") { k.clone() } else { format!("kb-{k}") };
+        // Una chiave che già dice `kb-` non diventa `kb-kb-`, e una che dice
+        // `dc.` non diventa `kb-dc.`: il front-matter scrive il nome del meta
+        // com'è, e raddoppiare il prefisso renderebbe `kb-course` — o
+        // `dc.title`, che è un elemento dell'anagrafe ([`crate::anagrafe`]) —
+        // irraggiungibili. La regola è una sola, ed è «il prefisso del
+        // progetto si mette, il prefisso di qualcun altro no».
+        let nome = if k.starts_with("kb-") || k.starts_with(crate::anagrafe::PREFISSO) {
+            k.clone()
+        } else {
+            format!("kb-{k}")
+        };
         let _ = writeln!(s, "<meta name=\"{}\" content=\"{}\">", escape(&nome), escape(v));
     }
     // La provenienza, per prima fra i meta di `kb`: è la cosa che un lettore

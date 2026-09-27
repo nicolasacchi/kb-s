@@ -335,6 +335,8 @@ mod tests {
                 correct: true,
             },
             judged_by: Some(GraderKind::Deterministic),
+            unaided: Some(true),
+            n_hints: Some(0),
             at: Millis(1_700_000_000_000 + seq as i64),
         }
     }

@@ -11,6 +11,8 @@ pub mod artifact;
 pub mod cohort;
 pub mod events;
 pub mod export;
+pub mod calendario;
+pub mod padronanza;
 pub mod queue;
 pub mod registers;
 pub mod search;
@@ -113,6 +115,18 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/arguments/{id}/cohort",
             axum::routing::get(cohort::signals),
+        )
+        .route(
+            "/api/v1/courses/{course}/calendario",
+            axum::routing::get(calendario::calendario),
+        )
+        .route(
+            "/api/v1/courses/{course}/padronanza",
+            axum::routing::get(padronanza::meter),
+        )
+        .route(
+            "/api/v1/courses/{course}/padronanza/quota",
+            axum::routing::get(padronanza::share),
         )
         .route("/api/v1/search", axum::routing::get(search::search))
         .route(kbs_doc::THREE_RUNTIME, axum::routing::get(vendor_route::three))

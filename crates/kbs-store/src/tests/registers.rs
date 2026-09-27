@@ -61,6 +61,12 @@ fn observation(n: u32, s: &School, argument: &kbs_core::ArgumentId) -> Observati
             correct: true,
         },
         judged_by: Some(GraderKind::Deterministic),
+        // Il banco registra una dimostrazione **senza aiuto**: il checker ha
+        // girato su un esercizio a risposta chiusa e nessuna pista era in
+        // gioco. È il caso che la vista `unaided_observations` contiene, ed è
+        // il caso che i test di conteggio e di soglia contano.
+        unaided: Some(true),
+        n_hints: Some(0),
         at: Millis(T0 + n as i64),
     }
 }

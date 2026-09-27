@@ -225,6 +225,29 @@ impl Store {
 
 // ── observations ──────────────────────────────────────────────────────────────
 
+/// La relazione che contiene la superficie **non assistita**, e la sola.
+///
+/// È una vista, e la vista è definita in `V6__unaided.sql` con il suo
+/// `WHERE unaided = 1`. Qui dentro non c'è la frase: c'è il nome. Il motivo è
+/// che la frase può essere scritta due volte e le due copie divergono — e quando
+/// divergono, la divergenza è nel numero che un docente legge e nessuno vede
+/// perché. Un nome di relazione è una cosa sola, e il posto in cui la definizione
+/// sta è quello che ne fa la garanzia.
+///
+/// Questo nome entra anche in `count_failing`: il segnale di coorte di D9 conta
+/// le osservazioni non assistite, perché «dove cade la classe» è una domanda su
+/// che cosa gli studenti sanno fare senza aiuto. Le due letture — la del
+/// studente e quella del docente — hanno la stessa fonte, ed è per questo che
+/// non possono discordare.
+///
+/// `pub(crate)` e non `pub`: la vista si usa anche da altri moduli di questo
+/// crate — il calendario di `crate::calendario` deve prendere le stesse righe
+/// da qui, perché tre lettori che le prendono da tre posti sono tre misure
+/// della stessa cosa con tre denominatori — ma il nome non esce dal crate:
+/// fuori, il percorso pubblico è una funzione che ha già applicato il
+/// predicato.
+pub(crate) const UNAIDED_OBSERVATIONS: &str = "unaided_observations";
+
 impl Store {
     /// Aggiunge un'osservazione e le assegna il `seq` nella sessione.
     ///
@@ -254,12 +277,14 @@ impl Store {
             argument: draft.argument.clone(),
             evidence: draft.evidence.clone(),
             judged_by: draft.judged_by,
+            unaided: draft.unaided,
+            n_hints: draft.n_hints,
             at: draft.at,
         };
         let inserted = self.conn.execute(
             "INSERT INTO observations (id, session_id, seq, student, course_id, cohort, argument_id, \
-                                        evidence, evidence_payload, judged_by, at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                                        evidence, evidence_payload, judged_by, at, unaided, n_hints) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             rusqlite::params![
                 observation.id,
                 session.0,
@@ -272,6 +297,13 @@ impl Store {
                 payload,
                 observation.judged_by.map(codec::grader_to_db),
                 observation.at.0,
+                // `Option<bool>` e `Option<u32>` viaggiano come sono: `NULL` su
+                // `unaided` è «non registrato» e non uno `0`, e la traduzione
+                // qui dentro sarebbe una decisione che nessuno ha chiesto. Il
+                // `CHECK` della colonna e il trigger che vieta il conteggio
+                // senza disponibilità sono in `V6__unaided.sql`.
+                observation.unaided.map(|u| u as i64),
+                observation.n_hints.map(|n| n as i64),
             ],
         ).map_err(|e| classify("osservazione", &observation.id, e))?;
         debug_assert_eq!(inserted, 1);
@@ -300,9 +332,18 @@ impl Store {
     /// scritto. Chi non lo fa riceve `NotReadable`.
     ///
     /// Il limite che resta, dichiarato perché è vero: il rifiuto dice che una
-    /// sessione ha delle righe, e l'id contiene un millisecondio. Non dice chi sono
+    /// sessione ha delle righe, e l'id contiene un millisecondo. Non dice chi sono
     /// gli studenti, di che corso è, o che cosa hanno dimostrato, e non lo
     /// distingue da una sessione inesistente o vuota — quelle danno `[]`.
+    ///
+    /// **Qui si legge la tabella, non la vista `unaided_observations`.** La
+    /// catena di hash copre tutte le righe della sessione, comprese quelle
+    /// assistite: una catena costruita sul solo sottoinsieme non assistito non è
+    /// una catena corteggiata, è una catena vera e con un buco, e il buco
+    /// starebbe proprio dove un riscrittore ci metterebbe una riga. La regola
+    /// «lo studente vede solo le non assistite» vale per la **sua** lettura del
+    /// registro, e questa strada non è la sua: qui il predicato chiede `teaches`
+    /// e nient'altro.
     pub fn observations_in_session(
         &self,
         person: &PersonId,
@@ -310,7 +351,7 @@ impl Store {
     ) -> Result<Vec<Observation>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, seq, student, course_id, cohort, argument_id, evidence, evidence_payload, \
-                    judged_by, at \
+                    judged_by, at, unaided, n_hints \
                FROM observations WHERE session_id = ?1 ORDER BY seq",
         )?;
         let rows = stmt.query_map([&session.0], map_observation)?;
@@ -343,8 +384,35 @@ impl Store {
 
     /// Le osservazioni su un argomento, viste da chi ha diritto di vederle.
     ///
-    /// Chi non ha diritto riceve `NotReadable`, non un elenco vuoto: un elenco
+    /// **Chi non ha diritto riceve `NotReadable`, non un elenco vuoto:** un elenco
     /// vuoto è una risposta vera, e qui non lo sarebbe.
+    ///
+    /// **E chi è lo studente vede solo le non assistite.** Non è un filtro che
+    /// questa funzione si mette sopra i risultati: è la **relazione** da cui
+    /// legge. La vista `unaided_observations` è definita in `V6__unaided.sql` e
+    /// contiene il `WHERE unaided = 1`; qui sotto c'è il nome di una vista, non la
+    /// frase che la definisce. Un percorso di lettura nuovo che sbaglia la
+    /// relazione sbaglia un identificatore che si legge, non una clausola `WHERE`
+    /// che si duplica e che un giorno può divergere da quella nello schema.
+    ///
+    /// Una riga con `unaided` **ignoto** non esce dalla vista, e per la logica a
+    /// tre valori: `NULL = 1` non è vero. Non è una scelta di questo file, ed è
+    /// il motivo per cui la colonna non ha un `DEFAULT 1` — vedi la migrazione.
+    ///
+    /// Chi insegna legge dalla tabella: la coda di practice è sua, e gli
+    /// aggregati di classe sono costruiti sulle stesse righe. **Chi insegna ha la
+    /// precedenza anche quando il registro è il suo** — un docente che guarda il
+    /// proprio registro non è uno studente che guarda il proprio registro, e il
+    /// predicato che lo distingue è `teaches`, che è una relazione come le altre
+    /// (D5) e non un ruolo.
+    ///
+    /// `SoloMio` qui non capita e, se capita, è un `NotReadable`. Il doc sopra lo
+    /// dichiara: lo scope del registro delle dimostrazioni è «lo studente o chi
+    /// insegna», e un emittente di giudizi non ne fa parte. Non è una restrizione
+    /// nuova — è il predicato che questa funzione già dichiarava e che il
+    /// chiamante buttava via; e senza, un pari che ha emesso un giudizio
+    /// leggerebbe anche la coda di practice, che è la riga che la vista serve a
+    /// togliere.
     pub fn observations_for(
         &self,
         person: &PersonId,
@@ -356,16 +424,35 @@ impl Store {
         // di giudicatore (`deterministic`, `peer`, …), non una persona, e D3 vieta
         // che sia un modello. Chi ha valutato una dimostrazione non è quindi
         // tracciato come persona in questa riga, e non può avere il diritto di
-        // leggerla per questa via. È un limite dichiarato del registro delle
-        // dimostrazioni, non una scelta silenziosa, ed è la ragione per cui qui
-        // `SoloMio` non può capitare: lo scope del registro delle dimostrazioni è
-        // «lo studente o chi insegna», e nulla altro.
-        self.register_scope(person, &unit.course, student, None)?;
-        let mut stmt = self.conn.prepare(
+        // leggerla per questa via.
+        if let RegisterScope::SoloMio(_) =
+            self.register_scope(person, &unit.course, student, None)?
+        {
+            return Err(Error::NotReadable {
+                person: person.clone(),
+                id: ArgumentId(format!("registro:{student}")),
+            });
+        }
+        // Una relazione in più rispetto a `register_scope`, che la chiede
+        // anch'essa: la vista dipende da *quale* dei due diritti ha aperto la
+        // strada, e `Tutto` non distingue «sono lo studente» da «insegno il
+        // corso». Sono poche righe su un corso, e la alternativa — una variante
+        // nuova di `RegisterScope` — cambierebbe i due lettori del registro dei
+        // giudizi per una domanda che è solo di questo.
+        let insegna = self
+            .relations_of(person, &unit.course)?
+            .contains(&Relation::Teaches);
+        let relazione = if insegna {
+            "observations"
+        } else {
+            UNAIDED_OBSERVATIONS
+        };
+        let sql = format!(
             "SELECT id, seq, student, course_id, cohort, argument_id, evidence, evidence_payload, \
-                    judged_by, at \
-               FROM observations WHERE argument_id = ?1 AND student = ?2 ORDER BY id",
-        )?;
+                    judged_by, at, unaided, n_hints \
+               FROM {relazione} WHERE argument_id = ?1 AND student = ?2 ORDER BY id"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(
             rusqlite::params![argument.0, student.0],
             map_observation,
@@ -1108,6 +1195,15 @@ impl Store {
     /// viene calcolato restano nel registro, e sono loro che si contano. La
     /// soglia è un accesso all'aggregato, non una scomparsa del dato.
     ///
+    /// **Conta solo le osservazioni non assistite.** Il numero che il registro
+    /// riconta è preso dalla vista `unaided_observations`, quindi un tentativo
+    /// assistito non entra in `failing` né in `total`: «dove cade la classe» si
+    /// misura su che cosa gli studenti fanno senza aiuto. Un docente che
+    /// dichiara i numeri di prima — quando il segnale conteneva anche la coda di
+    /// practice — riceve `CohortCountMismatch` con **entrambi** i numeri, non un
+    /// silenzio: su un campo compilato il silenzio è il modo più veloce per
+    /// insegnare al chiamante che quel campo non esiste.
+    ///
     /// Il rifiuto in scrittura è deliberato oltre al `CHECK` del database: se il
     /// segnale sotto soglia non esiste, nessun percorso di lettura dimenticato
     /// può pubblicarlo. Il `CHECK` copre il caso in cui qualcuno scrive SQL a
@@ -1153,6 +1249,13 @@ impl Store {
     /// sulle persone e un dato sui tentativi, ed è tutta la differenza che D9
     /// chiede. La definizione di «in errore» è nel doc di
     /// [`Store::record_cohort_signal`] e sta qui dentro per non averne due.
+    ///
+    /// **Conta la vista `unaided_observations`, non la tabella**, ed è la stessa
+    /// relazione da cui lo studente legge il proprio registro: il numeratore di
+    /// D9 e la superficie dello studente prendono le righe dallo stesso posto e
+    /// non possono discordare. Una riga con `unaided` ignoto non conta, e non
+    /// per una scelta di questo file: la vista non la contiene, e il motivo è
+    /// nella migrazione che la definisce.
     fn count_failing(
         &self,
         course: &CourseId,
@@ -1160,12 +1263,14 @@ impl Store {
         argument: &ArgumentId,
     ) -> Result<(usize, usize)> {
         let (failing, total): (i64, i64) = self.conn.query_row(
-            "SELECT COUNT(DISTINCT CASE WHEN evidence = 'checked' \
-                       AND json_extract(evidence_payload, '$.correct') = 0 \
-                      THEN student END), \
-                    COUNT(DISTINCT student) \
-               FROM observations \
-              WHERE course_id = ?1 AND cohort = ?2 AND argument_id = ?3",
+            &format!(
+                "SELECT COUNT(DISTINCT CASE WHEN evidence = 'checked' \
+                          AND json_extract(evidence_payload, '$.correct') = 0 \
+                         THEN student END), \
+                       COUNT(DISTINCT student) \
+                  FROM {UNAIDED_OBSERVATIONS} \
+                 WHERE course_id = ?1 AND cohort = ?2 AND argument_id = ?3"
+            ),
             rusqlite::params![course.0, cohort.0, argument.0],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
@@ -1283,12 +1388,27 @@ fn map_observation(row: &rusqlite::Row<'_>) -> rusqlite::Result<Observation> {
     let judged_by: Option<String> = row.get(8)?;
     let at: i64 = row.get(9)?;
 
+    // `unaided` e `n_hints` stanno in coda, e sono gli unici due campi della
+    // riga che possono valere `NULL` **per un fatto, non per una lacuna**: la
+    // colonna esiste e la cella è vuota perché nessuno l'ha compilata. Un
+    // `bool` qui farebbe di `0` e di «assente» la stessa cosa, che è la
+    // confusione che la migrazione `V6` dichiara di non fare.
+    let unaided: Option<i64> = row.get(10)?;
+    let n_hints: Option<i64> = row.get(11)?;
+
     let evidence =
         codec::evidence_from_db(&evidence_raw, evidence_payload).map_err(|e| corrupt(6, e))?;
     let judged_by = match judged_by {
         None => None,
         Some(raw) => Some(codec::grader_from_db(&raw).map_err(|e| corrupt(8, e))?),
     };
+    // Il `CHECK` della colonna è il motivo per cui qui non c'è un terzo braccio
+    // per un valore che non è `0` e non è `1`: quel valore non può arrivare dal
+    // database senza che il `CHECK` sia stato tolto, che è una rimozione che si
+    // vede nello schema. La conversione non inventa nulla: è la stessa
+    // codifica che `append_observation` scrive e la stessa che ne rilegge.
+    let unaided = unaided.map(|v| v == 1);
+    let n_hints = n_hints.map(|v| v as u32);
 
     Ok(Observation {
         id,
@@ -1299,6 +1419,8 @@ fn map_observation(row: &rusqlite::Row<'_>) -> rusqlite::Result<Observation> {
         argument: ArgumentId(argument),
         evidence,
         judged_by,
+        unaided,
+        n_hints,
         at: Millis(at),
     })
 }

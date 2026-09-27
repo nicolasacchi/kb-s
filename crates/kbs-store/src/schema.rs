@@ -184,13 +184,19 @@ mod unit {
             .iter()
             .map(|m| m.version())
             .collect();
-        // Le versioni sono 1..5 in un ordine che **non** è quello: refinery le
+        // Le versioni sono 1..6 in un ordine che **non** è quello: refinery le
         // legge nell'ordine del filesystem e le applica così. Ogni versione
         // alza l'epoch con `MAX`, quindi l'ordine non conta — ma l'insieme delle
         // versioni sì, e questo è il numero che la guardia confronta.
+        //
+        // Il numero è dichiarato qui e non dedotto: una guardia che si
+        // autocostruisce l'attesa non confronta niente, e questa è la ragione per
+        // cui l'elenco è una lista scritta a mano. Aggiungere una migrazione
+        // significa aggiungere un numero qui, e se qualcuno lo dimentica questo
+        // test è rosso — che è il comportamento voluto.
         let mut ordinata = versions.clone();
         ordinata.sort_unstable();
-        assert_eq!(ordinata, vec![1, 2, 3, 4, 5]);
-        assert_eq!(binary_epoch(), 5);
+        assert_eq!(ordinata, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(binary_epoch(), 6);
     }
 }

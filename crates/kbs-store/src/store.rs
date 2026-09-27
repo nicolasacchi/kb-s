@@ -48,8 +48,8 @@ const ARGUMENT_SELECT: &str = "\
 
 pub struct Store {
     /// `pub(crate)` e non pubblico: i moduli fratelli (`publish`, `registers`,
-    /// `search`, `export`) devono scrivere, e fuori dal crate l'unica porta è
-    /// [`Store::conn`], che è dichiarata come tale.
+    /// `search`, `export`, `calendario`) devono scrivere, e fuori dal crate
+    /// l'unica porta è [`Store::conn`], che è dichiarata come tale.
     pub(crate) conn: Connection,
 }
 

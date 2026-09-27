@@ -19,6 +19,7 @@
 //! | [`mcp`] | D10.4, il docente dentro un agente |
 //! | [`gate`] | D4, l'unica strada che porta `in-corso` |
 //! | [`diagnosis`] | il giudizio orale del docente, che non è riproducibile e lo dice |
+//! | [`pratica`] | il tentativo non assistito: l'unica strada che scrive `unaided = 1` |
 //!
 //! # La regola che questo crate esiste per applicare
 //!
@@ -66,6 +67,7 @@ pub mod error;
 pub mod gate;
 pub mod mcp;
 pub mod prompt;
+pub mod pratica;
 pub mod route;
 pub mod scan;
 
@@ -75,6 +77,7 @@ pub use diagnosis::Diagnosis;
 pub use gate::Gate;
 pub use prompt::{DiagnosisRef, GenerationRequest};
 pub use route::{Diagnostic, Receipt, Request, Route, Verdict, content_hash, receive};
+pub use pratica::Tentativo;
 
 /// La versione di questo crate. Se un altro modulo chiede «con quale versione è
 /// stato scritto», la domanda giusta non è questa: per lo schema è
