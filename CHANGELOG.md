@@ -36,6 +36,54 @@ codice. Un progetto che non elenca i propri buchi li ripete dentro se stesso.
   la sua radice. Il confine di processo non è cambiato — il banco non chiama
   funzioni interne, chiama il binario — ed è la stessa interfaccia che D10.2
   dichiara come «la CLI come protocollo».
+- **D11 è implementato, e prima non lo era.** `kbs-verify` dichiarava il trait
+  `InstanceGenerator` e scriveva che «`kbs-exercise` implementa»: non era vero.
+  Nessuna famiglia reale lo implementava, e la determinazione del replay era
+  provata solo contro uno stub costruito a mano dentro `kbs-verify` — quindi non
+  diceva niente sui generatori veri, che è la terza parte mancante di D16. Ora
+  ogni famiglia lo implementa e il catalogo è un enum con due `match` **chiuse**:
+  aggiungere una famiglia senza implementare il trait non compila. La
+  dipendenza va in un solo verso (`kbs-exercise → kbs-verify`, che non conosce
+  `kbs-exercise`) e il grafo resta aciclico. Il nuovo
+  `kbs-exercise/tests/il_replay_sulle_famiglie_reali.rs` passa da
+  `kbs_verify::replay` — il consumatore vero, non una ricerca di stringhe — su
+  istanze vere delle cinque famiglie, e prova anche i due preconditi (corpus e
+  versione del generatore) come **verdetti** e non come errori, che è la
+  distinzione su cui si regge un ricorso.
+- La copertura di «**qualunque stringa dello studente riceve un verdetto**» era
+  più stretta della promessa: i test passavano risposte non numeriche e indici
+  fuori intervallo, mai una stringa arbitraria. Il nuovo
+  `kbs-exercise/tests/qualunque_stringa.rs` passa dieci kB di rumore, caratteri
+  di controllo, `usize::MAX` come indice, la stringa vuota, parentesi non
+  bilanciate e altre forme, sulle **quattro** forme di risposta e su istanze
+  vere dei generatori. Nessuno di quei casi restituiva un `Err`: la promessa di
+  `check` era vera, era la misura che mancava. Lo stesso file fissa il confine
+  chiuso della tolleranza, il quasi-miss che una tolleranza relativa accetterebbe
+  e la precedenza del testo sull'indice nella scelta multipla — regole dichiarate
+  in `check` che nessun test prendeva.
+
+- **Il binario del server esiste.** `kbs-serve` è il primo modo di avviare
+  `kbs-server`: fino ad ora il crate era una libreria e nessuno poteva prendere
+  una porta. Tre cose che la libreria non poteva decidere e il processo decide,
+  e che adesso sono scritte in codice: il **rifiuto di partire** su un database
+  all'epoch di un binario più nuovo (la guardia di `kbs-store` era spesa dentro
+  `kbs-store` e non saliva), il **rifiuto di creare il corpus** (una radice
+  vuota fa rispondere «non c'è» a ogni artifact, che è la stessa risposta di
+  «non lo vedi», e il motivo diventerebbe invisibile) e il **rifiuto di mettere
+  il database dentro il corpus** (D12: l'uscita è `rm -rf`, e un registro che ci
+  sta dentro sparisce con i file che dovrebbe descrivere). Tutti e tre escono
+  con il codice `2`, che è «rifiutato da una regola» e non «errore di sistema»:
+  un supervisor che legge `4` riavvia, e riavviare un binario vecchio sopra uno
+  schema nuovo è il danno che la guardia evita. Ascolta su **loopback** per
+  default e `--listen 0.0.0.0:…` lo dice ad alta voce, perché qui l'identità è
+  una dichiarazione e una porta aperta su tutta la rete è un piedistallo.
+  `SIGINT` e `SIGTERM` chiudono in grazia: le richieste in volto finiscono e il
+  processo esce con `0`. Il nome è `kbs-serve` e non `kbs` perché `kbs-intake`
+  dichiara già un binario `kbs` e `kbs-fixtures` lo cerca in `target/debug` — due
+  binari omonimi non falliscono, è l'ultimo che compila che vince, in silenzio.
+  `kbs-server/tests/daemon.rs` prova il processo vero su una porta `:0` presa
+  dal sistema operativo: salute, radice, `404` identici byte per byte a «non lo
+  vedi», e il `SIGTERM`.
 
 ### Corretto
 
@@ -119,6 +167,16 @@ Elencato per ordine di gravità, non di importanza percepita.
   separato dal codice che li disegna, e la scena non viene disegnata da nessuna
   parte. Le quattro regole di D15.1 sono esercitate come proprietà dei dati e
   non come interazione.
+- **Nessun registro accessi nel daemon.** `kbs-serve` stampa l'annuncio
+  all'avvio e gli errori di avvio su stderr, ma non installa un
+  `tracing-subscriber`: gli eventi `tracing` emessi dagli handler arrivano a un
+  sottoscrittore che non c'è e non vengono stampati. Il registro di questa
+  istanza è quello del processo che la avvia. È un limite dichiarato e non
+  nascosto — aggiungere `tracing-subscriber` porterebbe dentro una dipendenza
+  che il workspace oggi non ha, e il daemon è utile senza. Ma è un buco: un
+  `tracing::error!` dentro un handler è silenzioso, e `db.rs` scrive che «il
+  panico si vede nei log» — il panico si vede, perché va su stderr, ma gli
+  eventi no.
 - **Nessun'uscita `rm -rf`, nessuna colonna a larghezza fissa, nessun
   LTI 1.3** (D12, D13).
 - **Nessuna conversione da markdown** (D14): l'HTML è il formato nativo e il

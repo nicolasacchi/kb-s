@@ -68,16 +68,90 @@ direttamente.
 `--require-pipeline`. Gli ultimi due sono ciò che la CI usa.
 
 Il banco chiama la pipeline **come processo** — `kbs verify --json --db <db>
+<corpus>` e `kbs promote --person <id> --arg <rel> --path <file> --db <db>
 <corpus>` — perché quella è la stessa interfaccia che D10 dichiara come «la CLI
 come protocollo», e perché un banco agganciato alle funzioni interne si rompe a
 ogni rifattorizzazione di un crate che non lo riguarda. La forma esatta del
 JSON che il banco si aspetta è documentata in `kbs_fixtures::adapter`.
 
-**Se la pipeline non è raggiungibile, i nove controlli che la richiedono sono
-SALTATI, e il referto dice perché.** Non sono superati. In locale il banco è
-verde con nove saltati; in CI gira con `--require-pipeline`, dove quegli stessi
-saltati sono un fallimento. Un banco che salta in silenzio viene creduto, e
-un banco creduto è peggio di un banco assente.
+**Il banco esegue una sequenza di atti, non un comando solo**, perché la
+citabilità di D4 non si può osservare da una cartella: una pipeline che
+indicizza non firma niente, e la ratifica è un atto separato, di una persona.
+Il banco fa quindi quattro atti — `verify` su un database vuoto, `promote` su
+ciò che la tabella dichiara ratificato di fresco, `verify` sullo stesso
+database, e la stessa strada su una copia con un contratto riscritto sotto una
+ratifica già firmata — e ne deduce quattro cose. Sono quattro controlli e non
+uno: un controllo che può fallire per quattro ragioni viene riportato per la
+ragione sbagliata.
+
+**Se la pipeline non è raggiungibile, gli undici controlli che la richiedono
+sono SALTATI, e il referto dice perché.** Non sono superati. In locale il banco
+è verde con undici saltati; in CI gira con `--require-pipeline`, dove quegli
+stessi saltati sono un fallimento. Un banco che salta in silenzio viene creduto,
+e un banco creduto è peggio di un banco assente.
+
+## Il server: due comandi
+
+Il daemon è `kbs-serve`. Si chiama così e non `kbs` perché `kbs` è già il
+binario di `kbs-intake`, e `kbs-fixtures` lo cerca in `target/debug`: due binari
+con lo stesso nome nella stessa cartella di build non falliscono, è l'ultimo
+che compila che vince, e in silenzio.
+
+```sh
+./kc build -p kbs-server --bin kbs-serve                        # costruiscilo
+./target/debug/kbs-serve --corpus crates/kbs-fixtures/corpus --db /tmp/kb-s.sqlite3
+```
+
+`--db` è facoltativo e sta **fuori** dal corpus per D12: il corpus è una
+cartella di file versionata e l'uscita è `rm -rf`, e un registro che ci sta
+dentro sparisce con i file che descrive. Il daemon lo rifiuta se glielo metti
+dentro, e non crea da solo un corpus che non esiste — su un corpus vuoto ogni
+artifact risponderebbe «non c'è», che è la stessa risposta di «non lo vedi», e
+il motivo sarebbe invisibile.
+
+All'avvio il daemon stampa due cose che un operatore non può indovinare: la URL,
+e il fatto che **l'identità è una dichiarazione**.
+
+```
+kbs-serve 0.1.0
+  ascolto     http://127.0.0.1:8787
+  corpus      crates/kbs-fixtures/corpus
+  database    /tmp/kb-s.sqlite3 (epoch 5; questo binario ne conosce 5)
+  identita'   una DICHIARAZIONE, non un'autenticazione: chiunque raggiunga
+              questa porta puo' dichiarare chi e' con X-Kbs-Person o ?person=.
+              Il predicato D5 protegge il materiale, non la persona.
+  chiusura    Ctrl-C (SIGINT) o SIGTERM: le richieste gia' ricevute finiscono,
+              e il listener chiude subito. Una richiesta ancora in arrivo —
+              meta' intestazioni, nessuna riga vuota — viene tagliata: non ha
+              ancora una richiesta da finire, solo dei byte.
+```
+
+Di default ascolta su **loopback**, e `--listen 0.0.0.0:8787` lo dice a voce
+alta quando lo fai: chiunque raggiunga quella porta può dichiarare chi è, e il
+predicato D5 continua a valere — protegge il materiale, non la persona.
+
+### Un database vero, non una directory vuota
+
+`kbs-serve` da solo parte e serve l'interfaccia, ma il database che crea è
+vuoto: nessun corso, nessuna relazione, e quindi ogni risposta è «non lo vedi».
+Per vedere materiale, il database lo deve costruire `kbs`:
+
+```sh
+./kc build -p kbs-intake --bin kbs
+./target/debug/kbs verify --db /tmp/kb-s.sqlite3 crates/kbs-fixtures/corpus
+./target/debug/kbs-serve --corpus crates/kbs-fixtures/corpus --db /tmp/kb-s.sqlite3
+```
+
+`verify` indicizza e **non firma niente**: gli argomenti che produce restano in
+`bozza`, e la bozza la vede solo chi ha una relazione col corso — il predicato
+D5 è già valido durante la stesura, ed è per quello che la coda di ratifica non
+espone nulla a chi non insegna. Diventa materiale del corso con
+`kbs ratify` e poi `kbs promote`, che sono atti separati e firmati da una
+persona (D4): un banco che indicizza non promote niente, e questo è il punto.
+`--person` dichiara chi agisce, e chi non dichiara niente non vede niente.
+
+`Ctrl-C` chiude: le richieste già ricevute finiscono, il listener chiude subito,
+e il processo esce con `0`.
 
 ## La claim, che resta falsificabile
 
@@ -167,7 +241,10 @@ il file: una correzione che cambia il test deve essere rumorosa, non silenziosa.
 | Un artifact che referenzia una CDN impedisce la pubblicazione | `pipeline.documenti.solo_la_versione_locale_di_three_e_pubblicabile` | non dimostrata: la pipeline non esiste, il controllo è saltato |
 | Il ciclo nei prerequisiti impedisce l'ingresso dell'argomento | `pipeline.prerequisiti.il_ciclo_e_rifiutato` | non dimostrata: la pipeline non esiste, il controllo è saltato |
 | Data la tupla (corpus, esercizio, seed) il replay riproduce la generazione | `il_replay_e_deterministico::lo_stesso_seed_da_la_stessa_istanza` | dimostrata sul generatore vero: il controllo di pipeline che la dichiarava e' stato rimosso perche' non poteva mai passare |
-| Una ratifica superata rende l'argomento non citabile **nell'indice** | `pipeline.indicizzazione.solo_i_ratificati_sono_citabili` | non dimostrata: la pipeline non esiste, il controllo è saltato |
+| Su un corpus che nessuno ha ratificato l'indice condiviso è vuoto | `la_seconda_strada_di_d4::atto_1_su_un_database_vuoto_nessun_item_e_citabile` | dimostrata |
+| La ratifica entra nel sistema solo come atto del docente | `la_seconda_strada_di_d4::atto_2_la_promozione_e_l_atto_del_docente_e_la_porta_la_ragiona` | dimostrata |
+| Un argomento ratificato entra nell'indice condiviso, e non altri | `la_seconda_strada_di_d4::atto_3_dopo_la_promozione_e_citabile_esattamente_il_gruppo_promosso` | dimostrata |
+| Una ratifica superata rende l'argomento non citabile **nell'indice**, e nessun altro esce | `la_seconda_strada_di_d4::atto_4_il_contratto_riscritto_sotto_una_ratifica_viva_esce_dal_citabile` | dimostrata |
 | La catena di hash copre le osservazioni e ha una consistency proof | — | non dimostrata: non c'è codice, e `D6` la dichiara come limite dichiarato |
 | Un accesso applica il predicato di visibilità | — | non dimostrata: il predicato esiste ed è testato, nessun accesso passa attraverso di esso |
 | La coorte raggiunge la soglia e aggrega | — | non dimostrata: la soglia è una costante e un predicato, non c'è aggregazione |

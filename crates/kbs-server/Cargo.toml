@@ -4,7 +4,6 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-repository.workspace = true
 authors.workspace = true
 description = "La superficie HTTP: capability per relazione, bus SSE partizionato, sandbox a origine per artifact, three.js vendorizzato"
 
@@ -28,3 +27,11 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+
+# Il binario si chiama `kbs-serve` e non `kbs`: `kbs-intake` dichiara gia' un
+# `[[bin]]` di nome `kbs`, e `kbs-fixtures::adapter::ProcessPipeline` cerca
+# `target/debug/kbs`. Due binari omonimi nella stessa cartella di build non
+# falliscono: e' l'ultimo che compila che vince, in silenzio.
+[[bin]]
+name = "kbs-serve"
+path = "src/main.rs"

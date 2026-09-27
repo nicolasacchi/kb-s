@@ -692,6 +692,7 @@ name = "kbs-exercise"
 version = "0.1.0"
 dependencies = [
  "kbs-core",
+ "kbs-verify",
  "serde",
  "serde_json",
  "thiserror",
@@ -703,9 +704,12 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "kbs-core",
+ "kbs-doc",
+ "kbs-exercise",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror",
 ]
 
@@ -718,6 +722,7 @@ dependencies = [
  "kbs-doc",
  "kbs-store",
  "kbs-verify",
+ "rusqlite",
  "scraper",
  "serde",
  "serde_json",
