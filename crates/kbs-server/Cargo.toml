@@ -6,6 +6,25 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "TODO"
+description = "La superficie HTTP: capability per relazione, bus SSE partizionato, sandbox a origine per artifact, three.js vendorizzato"
 
 [dependencies]
+kbs-core = { workspace = true }
+kbs-store = { workspace = true }
+kbs-doc = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-stream = "0.3"
+futures-core = "0.3"
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full", "test-util"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
