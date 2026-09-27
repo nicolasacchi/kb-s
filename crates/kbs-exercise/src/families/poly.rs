@@ -13,14 +13,19 @@
 //! richiederebbe un parser, e vedi `check`.
 
 use kbs_core::{Checker, Instance};
+use kbs_verify::{GeneratorKey, InstanceGenerator, ReplayError};
+
 use serde_json::json;
 
 use crate::error::ExerciseError;
-use crate::generator::Generator;
+use crate::generator::{Generator, replay_instance};
 use crate::seed::Rng;
 
-const FAMILY: &str = "algebra-polinomio";
-const VERSION: &str = "poly-expand/1";
+/// Il nome della famiglia: l'etichetta che finisce nel registro e che
+/// [`super::Family::name`] restituisce. È pubblico perché il catalogo lo
+/// dichiara, e il catalogo non deve copiare la stringa per poterla nominare.
+pub const FAMILY: &str = "algebra-polinomio";
+pub const VERSION: &str = "poly-expand/1";
 const PROMPT: &str = "Sviluppa il prodotto di due binomi di primo grado e scrivi il risultato nella forma \
 normale dichiarata: tre termini in ordine decrescente di grado, coefficienti interi, nessuna parentesi.";
 const GUARDIAN: &str =
@@ -72,5 +77,15 @@ impl Generator for PolyExpand {
             params: json!({ "p": p, "q": q, "r": r, "s": s }),
         };
         Ok((instance, Checker::Equivalence { normalized }))
+    }
+}
+
+impl InstanceGenerator for PolyExpand {
+    fn version(&self) -> &str {
+        self.generator_version()
+    }
+
+    fn generate(&self, key: &GeneratorKey) -> Result<Instance, ReplayError> {
+        replay_instance(self, key)
     }
 }

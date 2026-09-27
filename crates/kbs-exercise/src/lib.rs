@@ -5,7 +5,7 @@
 //! sorveglianza**. Niente di ciò che segue guarda uno studente, neanche per
 //! sbaglio.
 //!
-//! # Le cinque cose che ci sono
+//! # Le sei cose che ci sono
 //!
 //! 1. [`Generator`]: una **famiglia** di esercizi e una messa in forma
 //!    deterministica da `(generator_version, seed)`. Nessun orologio, nessun
@@ -23,6 +23,13 @@
 //! 5. [`publication::audit`]: il gate, che è la somma di 2 e 3 in una funzione —
 //!    perché due regole che si ricordano separatamente vengono sempre dimenticate
 //!    insieme.
+//! 6. [`generator::replay_instance`]: il ponte a `kbs_verify`, che è dove D11
+//!    diventa una domanda e non una descrizione. Il trait
+//!    `kbs_verify::InstanceGenerator` è dichiarato in `kbs-verify` — è quel
+//!    crate a stabilire la domanda — e **qui** è implementato, una volta per
+//!    famiglia, in un `match` chiuso sul catalogo. La dipendenza va in un solo
+//!    verso, e la direzione è questa: senza l'implementazione, D11 è una frase
+//!    su un registro che nessun generatore può difendere.
 //!
 //! # Che cosa non c'è, e perché
 //!
@@ -53,8 +60,8 @@ pub use check::{
     grade, is_bound_to, may_publish, normalize_equivalence, validate_checker, Verdict,
 };
 pub use error::ExerciseError;
-pub use families::{all, by_name};
-pub use generator::Generator;
+pub use families::{all, by_name, Family};
+pub use generator::{Generator, replay_instance};
 pub use grading::{rank, GradingChain, Outcome, GRADING_ORDER};
 pub use leak::{no_solution_leak, Leak};
 pub use publication::{audit, PublicationError};

@@ -14,14 +14,17 @@
 //! l'esercizio non valutabile per due terzi delle istanze.
 
 use kbs_core::{Checker, Instance};
+use kbs_verify::{GeneratorKey, InstanceGenerator, ReplayError};
 use serde_json::json;
 
 use crate::error::ExerciseError;
-use crate::generator::Generator;
+use crate::generator::{Generator, replay_instance};
 use crate::seed::Rng;
 
-const FAMILY: &str = "statistica-media-pesata";
-const VERSION: &str = "mean-weighted/1";
+/// Il nome della famiglia, pubblico perché il catalogo lo dichiara: vedi
+/// `poly::FAMILY` per la ragione.
+pub const FAMILY: &str = "statistica-media-pesata";
+pub const VERSION: &str = "mean-weighted/1";
 const TOLERANCE: f64 = 0.0005;
 const PROMPT: &str =
     "Calcola la media pesata dei valori dati, ciascuno con il suo peso, e riportala \
@@ -81,6 +84,16 @@ impl Generator for WeightedMean {
                 tolerance: TOLERANCE,
             },
         ))
+    }
+}
+
+impl InstanceGenerator for WeightedMean {
+    fn version(&self) -> &str {
+        self.generator_version()
+    }
+
+    fn generate(&self, key: &GeneratorKey) -> Result<Instance, ReplayError> {
+        replay_instance(self, key)
     }
 }
 

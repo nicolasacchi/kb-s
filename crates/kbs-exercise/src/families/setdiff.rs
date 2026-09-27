@@ -15,14 +15,17 @@
 //! che si indovina.
 
 use kbs_core::{Checker, Instance};
+use kbs_verify::{GeneratorKey, InstanceGenerator, ReplayError};
 use serde_json::json;
 
 use crate::error::ExerciseError;
-use crate::generator::Generator;
+use crate::generator::{Generator, replay_instance};
 use crate::seed::Rng;
 
-const FAMILY: &str = "insiemi-differenza";
-const VERSION: &str = "set-difference/1";
+/// Il nome della famiglia, pubblico perché il catalogo lo dichiara: vedi
+/// `poly::FAMILY` per la ragione.
+pub const FAMILY: &str = "insiemi-differenza";
+pub const VERSION: &str = "set-difference/1";
 const PROMPT: &str = "Elenca gli elementi di A che non appartengono a B. Scrivili separati da \
 virgola, senza ripetizioni e senza parentesi. L'ordine non conta.";
 const GUARDIAN: &str = "Controlla ogni elemento di A uno per uno: un elemento che compare anche \
@@ -74,6 +77,16 @@ impl Generator for SetDifference {
             params: json!({ "a": lista(&a), "b": lista(&b) }),
         };
         Ok((instance, Checker::Set { elements: elementi }))
+    }
+}
+
+impl InstanceGenerator for SetDifference {
+    fn version(&self) -> &str {
+        self.generator_version()
+    }
+
+    fn generate(&self, key: &GeneratorKey) -> Result<Instance, ReplayError> {
+        replay_instance(self, key)
     }
 }
 

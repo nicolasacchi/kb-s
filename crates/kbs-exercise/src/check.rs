@@ -455,6 +455,32 @@ mod tests {
         assert_eq!(grade(&i, &c, "129.0001"), Ok(Verdict::Incorrect));
     }
 
+    /// Il filtro sui numeri finiti di `parse_number` non si vede dalla risposta,
+    /// e per questo lo si dichiara dall'altra parte.
+    ///
+    /// «1e999» **come risposta** è sbagliata e senza filtro lo sarebbe
+    /// comunque: `|∞ − 42,5|` non è minore di nessuna tolleranza. Quindi il
+    /// test che passa quella stringa non prova che il filtro ci sia, e non lo
+    /// proverebbe nemmeno se il filtro sparisse. Il filtro si vede sull'
+    /// **istanza**: un esercizio che dichiara «1e999» come risposta attesa non
+    /// ha una risposta attesa, quindi è un esercizio rotto — e rotto vuol dire
+    /// `Err`, non «tutti sbagliano». Senza il filtro l'istanza passerebbe il
+    /// legame e ogni risposta dello studente diventerebbe sbagliata: un
+    /// esercizio che boccia tutti senza dirlo, che è la forma peggiore.
+    #[test]
+    fn un_attesa_non_finite_e_un_esercizio_rotto_e_una_classe_che_sbaglia_tutto() {
+        let c = Checker::Numeric { tolerance: 0.5 };
+        for attesa in ["1e999", "-1e999", "inf", "-inf", "NaN"] {
+            assert!(
+                matches!(
+                    grade(&inst(attesa), &c, "42.5"),
+                    Err(ExerciseError::UnboundInstance { .. })
+                ),
+                "{attesa:?} non è una risposta attesa: è un esercizio rotto, e deve dirlo"
+            );
+        }
+    }
+
     #[test]
     fn una_tolleranza_non_confrontabile_e_un_esercizio_rotto() {
         for tolerance in [f64::NAN, f64::INFINITY, -0.001] {

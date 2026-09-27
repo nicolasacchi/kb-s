@@ -10,6 +10,11 @@ description = "Esercizi parametrizzati con seed e verificatore deterministico: l
 
 [dependencies]
 kbs-core = { workspace = true }
+# La dipendenza va in un solo verso, ed è `kbs-verify` a porre la domanda
+# («riproduci»): il trait `InstanceGenerator` è dichiarato lì e implementato
+# qui. `kbs-verify` non conosce `kbs-exercise`, quindi il grafo resta aciclico —
+# `kbs-store` dipende da `kbs-verify` e non da questo crate.
+kbs-verify = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

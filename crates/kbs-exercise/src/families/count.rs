@@ -14,14 +14,17 @@
 //! due volte, e due conteggi non hanno una distanza.
 
 use kbs_core::{Checker, Instance};
+use kbs_verify::{GeneratorKey, InstanceGenerator, ReplayError};
 use serde_json::json;
 
 use crate::error::ExerciseError;
-use crate::generator::Generator;
+use crate::generator::{Generator, replay_instance};
 use crate::seed::Rng;
 
-const FAMILY: &str = "aritmetica-conta-coprimi";
-const VERSION: &str = "count-coprime/1";
+/// Il nome della famiglia, pubblico perché il catalogo lo dichiara: vedi
+/// `poly::FAMILY` per la ragione.
+pub const FAMILY: &str = "aritmetica-conta-coprimi";
+pub const VERSION: &str = "count-coprime/1";
 const PROMPT: &str =
     "Conta quanti interi da 1 a n sono coprimi con m, usando l'inclusione-esclusione \
 sui fattori primi distinti di m e non un elenco. La risposta è un intero esatto.";
@@ -65,6 +68,16 @@ impl Generator for CountCoprimes {
             params: json!({ "n": n, "m": m }),
         };
         Ok((instance, Checker::Numeric { tolerance: 0.0 }))
+    }
+}
+
+impl InstanceGenerator for CountCoprimes {
+    fn version(&self) -> &str {
+        self.generator_version()
+    }
+
+    fn generate(&self, key: &GeneratorKey) -> Result<Instance, ReplayError> {
+        replay_instance(self, key)
     }
 }
 
