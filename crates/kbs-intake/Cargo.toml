@@ -6,6 +6,23 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "TODO"
+description = "Le quattro strade di intake, il model lock e il gate di pubblicazione (D10, D4)"
 
 [dependencies]
+kbs-core.workspace = true
+kbs-store.workspace = true
+kbs-doc.workspace = true
+kbs-verify.workspace = true
+scraper = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[bin]]
+name = "kbs"
+path = "src/bin/kbs.rs"
