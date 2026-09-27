@@ -1,0 +1,526 @@
+/* Lo stile dell'interfaccia.
+ *
+ * Nessun font esterno, nessun foglio esterno, nessun CDN: la scuola può non
+ * avere rete (D15). I caratteri sono quelli del sistema, che sono gli stessi su
+ * ogni macchina che esiste e non costano una richiesta.
+ *
+ * I colori non sono decorazione: un rosso è un rifiuto, un giallo è un avviso, un
+ * verde è un «va detto». Ogni stato che il dominio ha un nome ha qui un colore,
+ * e i colori non vengono usati per nient'altro — un' interfaccia in cui il
+ * rosso è anche un accento non sa più dire che cosa è un rifiuto.
+ */
+
+:root {
+  --fondo: #0f1216;
+  --carta: #161b22;
+  --bordo: #2a323d;
+  --testo: #e6edf3;
+  --tacito: #9aa7b4;
+  --ok: #3fb950;
+  --attenzione: #d29922;
+  --rifiuto: #f85149;
+  --riferimento: #6cb6ff;
+  --raggio: 8px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --fondo: #f6f8fa;
+    --carta: #ffffff;
+    --bordo: #d8dee4;
+    --testo: #1f2328;
+    --tacito: #57606a;
+    --ok: #1a7f37;
+    --attenzione: #9a6700;
+    --rifiuto: #cf222e;
+    --riferimento: #0969da;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 1rem 4rem;
+  background: var(--fondo);
+  color: var(--testo);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  max-width: 78rem;
+  margin-inline: auto;
+}
+
+code {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  background: color-mix(in srgb, var(--bordo) 45%, transparent);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+a {
+  color: var(--riferimento);
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: 0 0 0.6rem;
+  border-bottom: 1px solid var(--bordo);
+  padding-bottom: 0.3rem;
+}
+
+h3 {
+  font-size: 1rem;
+  margin: 0.8rem 0 0.3rem;
+}
+
+/* ── la testata ─────────────────────────────────────────────────────────── */
+
+.testata {
+  padding: 1.5rem 0 1rem;
+}
+
+.riga {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.sottotitolo {
+  color: var(--tacito);
+  margin: 0;
+  max-width: 52rem;
+}
+
+.navigazione {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 1rem 0;
+}
+
+.navigazione a {
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--raggio);
+  text-decoration: none;
+}
+
+.navigazione a.attiva {
+  background: color-mix(in srgb, var(--riferimento) 18%, transparent);
+  color: var(--testo);
+}
+
+.barra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.barra label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+  color: var(--tacito);
+  gap: 0.2rem;
+}
+
+input[type="text"],
+input[type="search"] {
+  background: var(--carta);
+  color: var(--testo);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  padding: 0.4rem 0.6rem;
+  font: inherit;
+  min-width: 14rem;
+}
+
+input:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--riferimento);
+  outline-offset: 2px;
+}
+
+.dichiarazione {
+  color: var(--tacito);
+  font-size: 0.9rem;
+  max-width: 60rem;
+  margin: 0.5rem 0 0;
+}
+
+/* ── l'avvertenza sui limiti ────────────────────────────────────────────── */
+
+.limiti {
+  background: color-mix(in srgb, var(--attenzione) 12%, var(--carta));
+  border: 1px solid color-mix(in srgb, var(--attenzione) 45%, transparent);
+  border-left-width: 4px;
+  border-radius: var(--raggio);
+  padding: 0.9rem 1.1rem;
+  margin: 1rem 0 1.5rem;
+  max-width: 62rem;
+}
+
+.limiti strong {
+  display: block;
+  color: var(--attenzione);
+}
+
+/* ── le sezioni ─────────────────────────────────────────────────────────── */
+
+.sezione {
+  background: var(--carta);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  padding: 1rem 1.2rem;
+  margin: 0 0 1.25rem;
+}
+
+.sommario {
+  font-size: 1.05rem;
+  margin-top: 0;
+}
+
+.nota {
+  color: var(--tacito);
+  font-size: 0.9rem;
+  max-width: 60rem;
+}
+
+.appunto {
+  color: var(--tacito);
+  font-size: 0.9rem;
+  border-left: 3px solid var(--bordo);
+  padding-left: 0.7rem;
+}
+
+.motivo {
+  color: var(--tacito);
+  font-size: 0.85rem;
+}
+
+.caricamento {
+  color: var(--tacito);
+  font-style: italic;
+}
+
+.nulla {
+  color: var(--tacito);
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+
+.vuoto-senza-soglia {
+  border: 1px dashed var(--bordo);
+  border-radius: var(--raggio);
+  padding: 0.9rem 1.1rem;
+  background: color-mix(in srgb, var(--bordo) 20%, transparent);
+}
+
+.indice {
+  color: var(--tacito);
+}
+
+.indice li {
+  margin-bottom: 0.4rem;
+}
+
+/* ── gli stati ──────────────────────────────────────────────────────────── */
+
+.ok {
+  color: var(--ok);
+}
+
+.attenzione {
+  color: var(--attenzione);
+}
+
+.in-corso {
+  color: var(--tacito);
+}
+
+.regola {
+  color: var(--rifiuto);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.errore {
+  border: 1px solid var(--rifiuto);
+  border-left-width: 4px;
+  border-radius: var(--raggio);
+  padding: 0.7rem 0.9rem;
+  margin: 0.5rem 0;
+  background: color-mix(in srgb, var(--rifiuto) 8%, transparent);
+}
+
+.errore-regola {
+  border-color: var(--attenzione);
+  background: color-mix(in srgb, var(--attenzione) 8%, transparent);
+}
+
+.errore-assente,
+.errore-rete,
+.errore-server {
+  border-color: var(--bordo);
+  background: color-mix(in srgb, var(--bordo) 20%, transparent);
+}
+
+/* ── le tabelle ─────────────────────────────────────────────────────────── */
+
+.tabella {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+  font-size: 0.92rem;
+}
+
+.tabella th,
+.tabella td {
+  border: 1px solid var(--bordo);
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.tabella th {
+  background: color-mix(in srgb, var(--bordo) 35%, transparent);
+  font-weight: 600;
+}
+
+.col-chiave {
+  width: 14rem;
+  color: var(--tacito);
+}
+
+.col-stato,
+.col-contestazione {
+  width: 14rem;
+}
+
+.col-span {
+  width: 28%;
+}
+
+.stato-claim {
+  display: block;
+  font-weight: 600;
+}
+
+.stato-claim.sostenuta {
+  color: var(--ok);
+}
+
+.stato-claim.contraddetta {
+  color: var(--rifiuto);
+}
+
+.stato-claim.non-citabile,
+.stato-claim.ritratta {
+  color: var(--attenzione);
+}
+
+.claim-testo {
+  display: block;
+}
+
+.claim-id {
+  margin-top: 0.2rem;
+}
+
+.stato-riga {
+  color: var(--tacito);
+  font-size: 0.85rem;
+  margin-top: 0.2rem;
+}
+
+span.span,
+blockquote.span {
+  display: block;
+  margin: 0.3rem 0;
+  padding: 0.4rem 0.7rem;
+  border-left: 3px solid var(--bordo);
+  color: var(--tacito);
+  font-size: 0.9rem;
+}
+
+.nessuno-span {
+  color: var(--attenzione);
+  font-size: 0.88rem;
+}
+
+.ancora {
+  color: var(--tacito);
+  font-size: 0.8rem;
+}
+
+.provenienza .model-lock {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 0.6rem;
+  font-size: 0.85rem;
+  margin: 0.3rem 0 0;
+}
+
+.provenienza dt {
+  color: var(--tacito);
+}
+
+.provenienza dd {
+  margin: 0;
+}
+
+.voto {
+  font-weight: 600;
+}
+
+.contestazione {
+  border-left: 3px solid var(--attenzione);
+  padding-left: 0.6rem;
+}
+
+.rank {
+  color: var(--tacito);
+}
+
+/* ── i bottoni e la coda ────────────────────────────────────────────────── */
+
+.bottoni {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.3rem 0;
+}
+
+button {
+  background: var(--bordo);
+  color: var(--testo);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  padding: 0.35rem 0.7rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--riferimento);
+}
+
+.azioni {
+  min-width: 18rem;
+}
+
+.nota-ratifica {
+  width: 100%;
+  min-width: 0;
+}
+
+.esito:empty {
+  display: none;
+}
+
+.esito {
+  margin-top: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.cerca {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ambito {
+  border-left: 3px solid var(--riferimento);
+  padding-left: 0.7rem;
+}
+
+/* ── la scena ───────────────────────────────────────────────────────────── */
+
+.scena-area {
+  min-height: 20rem;
+  background: #101418;
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  overflow: hidden;
+}
+
+.scena-area canvas {
+  display: block;
+  max-width: 100%;
+  cursor: grab;
+}
+
+.scena-controlli {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin: 0.5rem 0;
+}
+
+.impronta {
+  color: var(--tacito);
+  font-size: 0.85rem;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.scena-dettaglio {
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  padding: 0.7rem 0.9rem;
+  margin-top: 0.5rem;
+}
+
+/* ── gli eventi e il piede ──────────────────────────────────────────────── */
+
+.eventi-zona {
+  margin: 1rem 0;
+}
+
+.canale {
+  background: var(--carta);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  padding: 0.8rem 1rem;
+}
+
+.stato-canale {
+  display: block;
+  color: var(--tacito);
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+ul.eventi {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  font-size: 0.9rem;
+}
+
+ul.eventi li {
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--bordo);
+}
+
+.evento-lag {
+  color: var(--attenzione);
+}
+
+.piede {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--bordo);
+  color: var(--tacito);
+  font-size: 0.88rem;
+  max-width: 60rem;
+}

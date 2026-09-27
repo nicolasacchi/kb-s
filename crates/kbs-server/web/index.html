@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>kb-s — il corpus della scuola</title>
+    <meta name="descrizione" content="Interfaccia del corpus di insegnamento: lettura, coda di ratifica, registri. Nessun modello dentro il prodotto." />
+    <link rel="stylesheet" href="./stile.css" />
+  </head>
+  <body>
+    <header class="testata">
+      <div class="riga">
+        <h1>kb-s</h1>
+        <p class="sottotitolo">Il corpus di una scuola. Niente modelli dentro: il materiale lo produce il docente, fuori, e qui dentro si registra con la sua provenienza.</p>
+      </div>
+
+      <nav class=" navigazione" aria-label="sezioni">
+        <a href="#/" data-vista="corsi">Da dove cominciare</a>
+        <a href="#/cerca" data-vista="cerca">Cerca</a>
+        <a href="#/coda" data-vista="coda">Coda di ratifica</a>
+        <a href="#/registri" data-vista="registri">Registri</a>
+      </nav>
+
+      <div class="barra">
+        <label>
+          <span>Chi dichiari di essere</span>
+          <input id="persona" type="text" placeholder="person_0001" autocomplete="off" spellcheck="false" />
+        </label>
+        <label>
+          <span>Corso</span>
+          <input id="corso" type="text" placeholder="course_0001" autocomplete="off" spellcheck="false" />
+        </label>
+      </div>
+      <p id="dichiarazione" class="dichiarazione"></p>
+    </header>
+
+    <!--
+      L'avvertenza sui limiti. Sta qui, in pagina, e non in una pagina «info» che
+      nessuno apre: un limite che si vede solo quando lo si cerca non è un
+      limite dichiarato. La frase è volutamente breve e volutamente in prima
+      pagina, perché è la cosa che un sistema che registra affermazioni senza
+      averle mai usate in una classe deve dire per primo.
+    -->
+    <aside class="limiti" role="note" aria-label="cosa questo sistema non sa">
+      <strong>Nessuno sa se questo corpus funziona in una classe italiana.</strong>
+      Non lo sappiamo nemmeno noi. Ci sono test automatici, un banco di prova e un
+      corpus, e nessuna delle tre cose è un'aula. Finché qualcuno non misura il
+      tempo che gli studenti passano a manipolare il materiale e quante relazioni
+      riescono a correggere da soli, questo software è un'ipotesi ben costruita e
+      non un metodo. E non diventerà un metodo da solo: continuare a costruirlo
+      bene non è misurarlo.
+    </aside>
+
+    <main id="vista"></main>
+
+    <section id="eventi" class="eventi-zona" aria-label="attività del corso"></section>
+
+    <footer class="piede">
+      <p>
+        Servito dal binario: nessun CDN, nessun font esterno, nessuna dipendenza da
+        costruire. La scuola può non avere rete e questa pagina funziona lo stesso —
+        è lo stesso motivo per cui three.js è vendorizzato nel repository (D15).
+      </p>
+      <p>
+        Il server non autentica nessuno. L'identità è una
+        <strong>dichiarazione</strong>, non un'autenticazione: nessuno la verifica,
+        e chiunque possa raggiungere questo server può dichiarare chi è. Ciò che
+        protegge il materiale è la relazione fra chi chiede e l'oggetto, non la
+        casella qui in alto.
+      </p>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
