@@ -1,9 +1,12 @@
 //! La verifica di una sessione, e il verdetto che porta con sé i tre limiti.
 //!
-//! [`verify`] non può restituire un verdetto nudo: restituisce un
+//! [`verify`] non restituisce un verdetto nudo: restituisce un
 //! [`Verified`](crate::limits::Verified), che è il verdetto più i tre limiti di
-//! D6. Chi lo riceve li ha per le mani e non può dimenticarli senza dire che
-//! li ha dimenticati.
+//! D6. Chi riceve il valore li ha per le mani, e stamparlo li stampa: non può
+//! mostrare il verdetto senza mostrare quello che non è garantito. Può
+//! naturalmente prendere il verdetto da solo — [`Verified::verdict`] esiste e
+//! non è nascosto — ma in quel caso è una sua scelta, dichiarata, e non
+//! qualcosa che il tipo finge di impedire.
 //!
 //! Il verdetto dice una cosa sola: se le righe **stanno in piedi** rispetto a
 //! ciò che è stato dichiarato prima. Non dice se le righe sono vere. Chi vuole

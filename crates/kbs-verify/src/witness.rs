@@ -153,6 +153,30 @@ impl Witness {
             }),
         }
     }
+    /// Riflette un testimone già scritto: le voci dell'export, ricostruite da
+    /// chi riceve il file.
+    ///
+    /// È l'inverso di [`Self::extend`] e ne applica **gli stessi controlli**, in
+    /// quest'ordine: nessuna voce a zero righe, nessuna voce che per una
+    /// sessione non superi l'ultima già presente, e la testa ricalcolata dalle
+    /// voci. Una voce fuori ordine fa fallire tutto, e non viene aggiunta
+    /// mezza: un export che riporta un testimone non monotono non è un
+    /// testimone che «in parte» si può accettare.
+    ///
+    /// La testa **non** viene presa da fuori: si ricalcola dalle voci, perché
+    /// dichiararla sarebbe accettare un testimone che mente sul proprio hash e
+    /// rimandare la contraddizione a un controllo successivo. Chi vuole
+    /// confrontare la testa dichiarata con quella ricalcolata usa
+    /// [`Self::check`], che su un [`Self`] appena costruito torna sempre: il
+    /// confronto utile è quello con la testa che *diceva* il file, e lo fa
+    /// [`ChainExport::witness`](crate::export::ChainExport::witness).
+    pub fn from_entries(entries: Vec<WitnessEntry>) -> Result<Witness, WitnessError> {
+        let mut w = Witness::new();
+        for entry in entries {
+            w.extend(entry)?;
+        }
+        Ok(w)
+    }
 
     /// Registra la testa corrente di una catena. È il gesto che lo studente fa
     /// quando copia fuori il registro: dopo questo, un rollback è visibile.
@@ -394,6 +418,49 @@ mod tests {
             })
         );
         assert_eq!(w.len(), 1);
+    }
+
+    #[test]
+    fn da_voci_si_rifaccia_lo_stesso_testimone() {
+        let voci = vec![
+            entry("s", 3, chain("s", 3, "a").head(), 10),
+            entry("s", 5, chain("s", 5, "a").head(), 20),
+            entry("t", 2, chain("t", 2, "a").head(), 30),
+        ];
+        let mut per_uno = Witness::new();
+        for v in &voci {
+            per_uno.extend(v.clone()).unwrap();
+        }
+        let rifatto = Witness::from_entries(voci).unwrap();
+        assert_eq!(rifatto.head(), per_uno.head());
+        assert_eq!(rifatto.entries(), per_uno.entries());
+        assert!(rifatto.check().is_ok());
+    }
+
+    #[test]
+    fn da_voci_non_monotone_non_si_rifà() {
+        // le stesse voci, nell'ordine in cui un rollback da backup le
+        // produrrebbe: prima le cinque righe, poi le tre
+        let voci = vec![
+            entry("s", 5, chain("s", 5, "a").head(), 10),
+            entry("s", 3, chain("s", 3, "a").head(), 20),
+        ];
+        assert_eq!(
+            Witness::from_entries(voci).err(),
+            Some(WitnessError::NotMonotonic {
+                session: sess("s"),
+                have: 5,
+                got: 3
+            })
+        );
+    }
+
+    #[test]
+    fn da_voci_vuote_si_rifaccia_il_testimone_vuoto() {
+        let w = Witness::from_entries(vec![]).unwrap();
+        assert!(w.is_empty());
+        assert_eq!(w.head(), None);
+        assert!(w.check().is_ok());
     }
 
     #[test]

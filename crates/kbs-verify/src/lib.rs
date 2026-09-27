@@ -12,7 +12,8 @@
 //! 2. **I tre limiti dichiarati** ([`limits`], D6): cosa questo crate **non**
 //!    garantisce, e cosa porta con sé ogni verdetto. Non è un paragrafo: è un
 //!    array di tre che non si può accorciare senza rompere la compilazione, e
-//!    un tipo [`Verified`] che non restituisce un verdetto senza.
+//!    un tipo [`Verified`] che nessuna funzione di questo crate può restituire
+//!    nudo.
 //! 3. **Il replay deterministico** ([`replay`], D11): la tupla che riproduce
 //!    un'istanza e la verifica che la riproduzione torni. Un replay che non
 //!    torna è un verdetto con due valori, non un errore.
@@ -20,7 +21,8 @@
 //! E due oggetti che esistono perché i limiti non restino lettera: il
 //! **testimone** ([`witness`]), la copia indipendente che rende visibile la
 //! riscrittura e il rollback, e l'**export a colonne fisse** ([`export`], D12),
-//! che porta fuori catena, prove, testimone e limiti insieme.
+//! che porta fuori righe, catena, prove, testimone e limiti insieme — e che si
+//! rilegge, perché un'uscita che non si può reimportare non è un'uscita.
 //!
 //! ## I tre limiti, in una riga ciascuno
 //!
@@ -66,12 +68,16 @@ pub mod replay;
 pub mod session;
 pub mod verify;
 pub mod witness;
-
-pub use canonical::{CanonicalError, canonicalize, canonicalize_str, leaf_of, leaf_of_value};
+pub use canonical::{
+    CanonicalError, canonical_of, canonicalize, canonicalize_str, leaf_of, leaf_of_value,
+};
 pub use chain::{
     Chain, ConsistencyProof, ProofError, ProofStep, Segment, SegmentPlan, Side, VerifyError,
 };
-pub use export::{CHAIN_COLUMNS, ChainExport, ExportError, ExportRow, LIMIT_COLUMNS};
+pub use export::{
+    CHAIN_COLUMNS, CHAIN_COLUMNS_WITH_ROWS, ChainExport, ExportError, ExportRow, LIMIT_COLUMNS,
+    SessionExport,
+};
 pub use hash::{Hash, HashParseError, leaf, node};
 pub use limits::{Limit, LimitId, Limits, Verified};
 pub use replay::{

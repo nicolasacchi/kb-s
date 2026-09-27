@@ -11,10 +11,11 @@ use kbs_core::{
     SeqInSession,
 };
 use kbs_verify::{
-    CanonicalError, Chain, ChainExport, ChainVerdict, Coherence, ConsistencyProof, ExportRow,
-    GeneratorKey, Hash, InstanceGenerator, LimitId, Limits, ReplayError, ReplayField, ReplayKey,
-    ReplayOutcome, ReplayRecord, SegmentPlan, SessionId, Verified, VerifyRequest, Witness,
-    WitnessEntry, WitnessError, canonicalize_str, leaf_of_value, replay, verify,
+    CanonicalError, Chain, ChainExport, ChainVerdict, Coherence, ConsistencyProof, ExportError,
+    ExportRow, GeneratorKey, Hash, InstanceGenerator, LimitId, Limits, ReplayError, ReplayField,
+    ReplayKey, ReplayOutcome, ReplayRecord, SegmentPlan, SessionExport, SessionId, Verified,
+    VerifyError, VerifyRequest, Witness, WitnessEntry, WitnessError, canonicalize_str,
+    leaf_of_value, replay, verify,
 };
 use serde_json::json;
 
@@ -43,6 +44,19 @@ fn rows(n: u64, tag: &str) -> Vec<Observation> {
 
 fn chain(session: &str, r: &[Observation]) -> Chain {
     Chain::build(&SessionId::new(session), r, SegmentPlan::every(4)).unwrap()
+}
+
+/// L'export di una sessione, con le righe che l'hanno prodotta.
+fn export(session: &SessionId, r: &[Observation], w: Option<&Witness>) -> ChainExport {
+    ChainExport::of(
+        &[SessionExport {
+            session,
+            rows: r,
+            plan: SegmentPlan::every(4),
+        }],
+        w,
+    )
+    .unwrap()
 }
 
 // ── D6 · la catena di hash ──────────────────────────────────────────────────
@@ -191,10 +205,61 @@ fn il_valore_restituito_da_verify_porta_i_tre_limiti() {
             l.id
         );
     }
-    // e non si può prendere il verdetto senza
+    // `into_parts` restituisce entrambi, e restituisce entrambi davvero: non
+    // finge di impedire di lasciare i limiti indietro, dice che tornano
+    // insieme quando li si chiede insieme.
     let (verdetto, limiti) = v.into_parts();
     let _: ChainVerdict = verdetto;
     assert_eq!(limiti, Limits::ALL);
+}
+
+/// La garanzia che `Verified` fa **ed è vera**: nessuna funzione pubblica di
+/// questo crate restituisce un verdetto nudo.
+///
+/// Non è un commento: sono tre dichiarazioni di tipo. Se qualcuno spoglia
+/// `Verified` dalla firma di `verify`, di `replay` o di `ReplayRecord::verify`
+/// — per restituire `ChainVerdict` o `ReplayOutcome` e basta — questo file non
+/// compila più. Era qui che il crate mentiva: il commento di `limits.rs`
+/// dichiarava impossibile un impossibile che non esisteva, mentre la cosa
+/// vera, questa, era vera e non era scritta da nessuna parte.
+#[test]
+fn nessuna_firma_pubblica_restituisce_un_verdetto_nudo() {
+    let _: fn(VerifyRequest<'_>) -> Result<Verified<ChainVerdict>, VerifyError> = verify;
+    let _: fn(&ReplayRecord, &str, &Fake) -> Result<Verified<ReplayOutcome>, ReplayError> = replay;
+    let _: fn(&ReplayRecord, &str, &Fake) -> Result<Verified<ReplayOutcome>, ReplayError> =
+        ReplayRecord::verify;
+}
+
+/// E la cosa che il commento dichiarava impossibile, qui dichiarata vera com'è:
+/// **esiste** un modo di prendere il verdetto da solo, e sono tre, tutti
+/// dichiarati. Il modulo non promette di vietarli — promette che il percorso
+/// che passa da `verify` o `replay` porta i limiti con sé.
+#[test]
+fn il_verdetto_si_prende_da_solo_e_il_modulo_lo_dice() {
+    let sessione = SessionId::new("s");
+    let r = rows(6, "a");
+
+    // per riferimento
+    let per_riferimento: ChainVerdict = verify(VerifyRequest::new(&sessione, &r))
+        .unwrap()
+        .verdict()
+        .clone();
+    assert!(per_riferimento.coherence.is_coherent());
+
+    // per valore, scartando i limiti: una riga, e i limiti restano indietro
+    let (per_valore, scartati) = verify(VerifyRequest::new(&sessione, &r))
+        .unwrap()
+        .into_parts();
+    assert_eq!(per_valore.coherence, per_riferimento.coherence);
+    assert_eq!(scartati, Limits::ALL);
+
+    // e attraverso `map`, che conserva l'involucro ma non lo rende obbligatorio
+    let righe: usize = verify(VerifyRequest::new(&sessione, &r))
+        .unwrap()
+        .map(|v| v.rows)
+        .verdict()
+        .to_owned();
+    assert_eq!(righe, 6);
 }
 
 /// Il primo limite, provato: una catena riscritta da capo verifica come
@@ -476,6 +541,77 @@ fn un_replay_su_una_versione_diversa_non_e_un_replay() {
     );
 }
 
+/// Il difetto che questo test chiude: `ReplayRecord::verify` confrontava i
+/// dati dell'istanza e **non guardava** né `corpus_hash` né
+/// `generator_version`, restituendo `Match` — stampato «replay fedele», e con
+/// `is_match() == true` — per un replay che `replay()` nega come verdetto. Ora
+/// i due preconditi sono dentro il verdetto, e il verdetto torna con i tre
+/// limiti.
+#[test]
+fn il_confronto_del_record_su_un_corpus_diverso_non_e_un_riallevo() {
+    let v = record()
+        .verify(
+            "corpus-hash-2",
+            &Fake {
+                version: "gen-1".into(),
+                answer: 7,
+            },
+        )
+        .unwrap();
+    assert!(!v.verdict().is_match());
+    assert_eq!(
+        v.verdict().mismatch(),
+        Some((
+            ReplayField::CorpusHash,
+            "corpus-hash-1",
+            "corpus-hash-2"
+        ))
+    );
+    // e il verdetto porta con sé i limiti, come `replay`
+    assert_eq!(v.limits(), Limits::ALL);
+}
+
+#[test]
+fn il_confronto_del_record_su_una_versione_diversa_non_e_un_riallevo() {
+    let v = record()
+        .verify(
+            "corpus-hash-1",
+            &Fake {
+                version: "gen-2".into(),
+                answer: 7,
+            },
+        )
+        .unwrap();
+    assert!(!v.verdict().is_match());
+    assert_eq!(
+        v.verdict().mismatch(),
+        Some((
+            ReplayField::GeneratorVersion,
+            "gen-1",
+            "gen-2"
+        ))
+    );
+    assert_eq!(v.limits(), Limits::ALL);
+}
+
+/// La stessa istanza rigenerata e la stessa risposta: cambiano solo il corpo
+/// del verdetto, non i dati. È la prova che i due test qui sopra non passano
+/// per caso — l'unica differenza è la tupla, e la tupla è dentro il verdetto.
+#[test]
+fn il_confronto_del_record_sulla_stessa_tupla_e_un_riallevo() {
+    let v = record()
+        .verify(
+            "corpus-hash-1",
+            &Fake {
+                version: "gen-1".into(),
+                answer: 7,
+            },
+        )
+        .unwrap();
+    assert_eq!(*v.verdict(), ReplayOutcome::Match);
+    assert!(v.verdict().mismatch().is_none());
+}
+
 #[test]
 fn un_generatore_che_non_puo_generare_è_un_errore() {
     let sconosciuto = ReplayRecord::new(
@@ -524,9 +660,9 @@ fn una_terza_persona_verifica_le_prove_dall_export_solo() {
     let mut testimone = Witness::new();
     testimone.observe(&onesta).unwrap();
 
-    let testo = ChainExport::of(&[onesta.clone()], Some(&testimone))
-        .unwrap()
-        .to_text();
+    let sessione = SessionId::new("s");
+    let r = rows(11, "a");
+    let testo = export(&sessione, &r, Some(&testimone)).to_text();
     let rilevato = ChainExport::from_text(&testo).unwrap();
 
     // la terza persona ha solo il file: nessuna riga, nessun server
@@ -572,8 +708,7 @@ fn una_terza_persona_verifica_le_prove_dall_export_solo() {
 
 #[test]
 fn lesportazione_dichiara_anche_i_limiti() {
-    let c = chain("s", &rows(6, "a"));
-    let testo = ChainExport::of(&[c], None).unwrap().to_text();
+    let testo = export(&SessionId::new("s"), &rows(6, "a"), None).to_text();
     for l in Limits::ALL.iter() {
         assert!(testo.contains(l.statement), "manca il limite {}", l.id);
     }
@@ -605,4 +740,178 @@ fn il_verdetto_senza_testimone_dice_che_non_e_ancorato() {
         verify(VerifyRequest::new(&sessione, &rows(6, "a"))).unwrap();
     assert!(v.to_string().contains("limiti dichiarati"));
     assert!(v.to_string().contains("riscrive"));
+}
+
+// ── D12 · l'export torna indietro ───────────────────────────────────────────
+
+/// Il giro intero: si costruisce, si esporta, si rilegge, si verifica. È il
+/// punto di D12 — «l'uscita è `rm -rf`» — e finora l'export non tornava
+/// indietro: portava la testa e le prove, e non le righe che le unevano, così
+/// l'unica cosa che l'auditor potesse farne era `ConsistencyProof::check`.
+#[test]
+fn l_export_riporta_le_che_va_ricontrata() {
+    let sessione = SessionId::new("s");
+    let r = rows(9, "a");
+    let testo = export(&sessione, &r, None).to_text();
+
+    let rilevato = ChainExport::from_text(&testo).unwrap();
+    let (sessione_letta, righe_lette) = rilevato.observations().unwrap().remove(0);
+    assert_eq!(sessione_letta, sessione);
+    assert_eq!(righe_lette, r, "le righe non sono tornate quelle scritte");
+
+    // e la verifica sulle righe rilette dà lo stesso verdetto di quella sulle
+    // righe in memoria
+    let da_file = verify(VerifyRequest::new(&sessione_letta, &righe_lette)).unwrap();
+    let in_memoria = verify(VerifyRequest::new(&sessione, &r)).unwrap();
+    assert_eq!(da_file.verdict(), in_memoria.verdict());
+    assert_eq!(da_file.verdict().head, chain("s", &r).head());
+    assert_eq!(da_file.limits(), Limits::ALL);
+}
+
+/// Il giro intero **con** la copia indipendente: il file la riporta, il
+/// lettore la ricostruisce, e la catena risulta ancorata. Senza il testimone
+/// lo stesso file dà `anchored: false` — ed è la stessa riga, non un'altra.
+#[test]
+fn l_export_riporta_il_testimone_che_ancora_il_verdetto() {
+    let sessione = SessionId::new("s");
+    let r = rows(9, "a");
+    let mut testimone = Witness::new();
+    testimone.observe(&chain("s", &r)).unwrap();
+
+    let testo = export(&sessione, &r, Some(&testimone)).to_text();
+    let rilevato = ChainExport::from_text(&testo).unwrap();
+    let (_, righe_lette) = rilevato.observations().unwrap().remove(0);
+    let w = rilevato.witness().unwrap().expect("il file dichiara un testimone");
+    assert!(w.check().is_ok());
+    assert_eq!(w.head(), testimone.head());
+    assert_eq!(w.entries().len(), 1);
+
+    let v = verify(
+        VerifyRequest::new(&sessione, &righe_lette).with_witness(&w),
+    )
+    .unwrap();
+    assert_eq!(v.verdict().coherence, Coherence::Coherent { anchored: true });
+
+    // lo stesso file, letto senza il testimone, non è ancorato
+    let senza = verify(VerifyRequest::new(&sessione, &righe_lette)).unwrap();
+    assert_eq!(senza.verdict().coherence, Coherence::Coherent { anchored: false });
+}
+
+/// Il giro intero di una catena **riscritta da capo**: torna indietro come
+/// catena coerente, e come non ancorata. Il primo limite, provato attraverso
+/// il file e non solo in memoria.
+#[test]
+fn una_catena_riscritta_rilegge_dall_export_coerente_e_non_ancorata() {
+    let sessione = SessionId::new("s");
+    let riscritta = rows(9, "b");
+    let testo = export(&sessione, &riscritta, None).to_text();
+    let rilevato = ChainExport::from_text(&testo).unwrap();
+    let (s_letta, righe_lette) = rilevato.observations().unwrap().remove(0);
+    assert!(righe_lette != rows(9, "a"), "la riscritta non deve essere l'originale");
+
+    let v = verify(VerifyRequest::new(&s_letta, &righe_lette)).unwrap();
+    assert!(v.verdict().coherence.is_coherent());
+    assert_eq!(v.verdict().coherence, Coherence::Coherent { anchored: false });
+    assert_eq!(v.verdict().head, chain("s", &riscritta).head());
+}
+
+/// Un export che dichiara la testa di una catena e porta le righe di un'altra
+/// non si apre: la foglia della riga non è quella dichiarata. Il testo è
+/// leggibile e l'hash no, ed è quello il punto.
+#[test]
+fn una_riga_cambiata_senza_rifarne_la_foglia_non_si_apre() {
+    let sessione = SessionId::new("s");
+    let testo = export(&sessione, &rows(4, "a"), None).to_text();
+    let righe = righe_di_riga(&testo, 0);
+    let cambiata = righe.replacen("\"correct\":true", "\"correct\":false", 1);
+    assert_ne!(righe, cambiata);
+    let manomesso = testo.replacen(&righe, &cambiata, 1);
+
+    let rilevato = ChainExport::from_text(&manomesso).unwrap();
+    assert!(matches!(
+        rilevato.observations(),
+        Err(ExportError::RowLeafMismatch { .. })
+    ));
+}
+
+/// Un file di **nove** colonne — cioè scritto da una versione precedente di
+/// questo crate — si apre ancora, e le sue quattro righe si leggono. Il
+/// formato cresce in coda per poter invecchiare: chi ha già un file in
+/// circolazione non deve scoprire che il crate di oggi non lo legge.
+#[test]
+fn un_file_della_prima_versione_si_apre_ancora() {
+    let sessione = SessionId::new("s");
+    let r = rows(4, "a");
+    let testo = export(&sessione, &r, None).to_text();
+    // Il file di prima: le nove colonne di sempre, la decima non c'è, e le
+    // righe non c'erano — non potevano esserci, la colonna non esisteva.
+    let nove: String = testo
+        .lines()
+        .filter(|l| !l.starts_with("observation|"))
+        .map(|l| {
+            let celle: Vec<&str> = l.split('|').collect();
+            if celle.len() == 10 {
+                celle[..9].join("|")
+            } else {
+                l.to_owned()
+            }
+        })
+        .collect::<Vec<String>>()
+        .join("\n");
+    assert!(nove.starts_with(&kbs_verify::CHAIN_COLUMNS.join("|")));
+    assert!(!nove.contains("observation|"));
+    assert!(nove.lines().all(|l| {
+        // 1 è la riga vuota che separa le due tabelle
+        let n = l.split('|').count();
+        n == 1 || n == 3 || n == 9
+    }));
+
+    let rilevato = ChainExport::from_text(&nove).unwrap();
+    assert_eq!(rilevato.rows().len(), 2, "testa e un segmento: nessuna riga");
+    assert!(
+        rilevato.observations().unwrap().is_empty(),
+        "un file di nove colonne non porta righe, e non finge di portarle"
+    );
+    // e un file di nove colonne che dichiara lo stesso tipo di riga non si
+    // apre: la colonna che lo rende una riga non c'è
+    let falsa = nove.replacen("head|s|4|0|3||", "observation|s|4|0|3||", 1);
+    assert!(matches!(
+        ChainExport::from_text(&falsa),
+        Err(ExportError::RowWithoutPayload { .. })
+    ));
+}
+
+/// Un file che dichiara una testa di testimone e porta voci che non la
+/// ricostruiscono non è un testimone illeggibile: è un testimone che mente, e
+/// l'auditor deve saperlo prima di appoggiarci un verdetto.
+#[test]
+fn un_testimone_che_dichiara_una_testa_non_sua_non_si_accetta() {
+    let sessione = SessionId::new("s");
+    let r = rows(4, "a");
+    let mut testimone = Witness::new();
+    testimone.observe(&chain("s", &r)).unwrap();
+    let testo = export(&sessione, &r, Some(&testimone)).to_text();
+    let falso = Hash::from_hex(&"ab".repeat(32)).expect("hash di 32 byte");
+    assert_ne!(falso, testimone.head().unwrap());
+
+    let bugiardo = testo.replacen(
+        &testimone.head().unwrap().to_hex(),
+        &falso.to_hex(),
+        1,
+    );
+    assert_ne!(testo, bugiardo);
+    let rilevato = ChainExport::from_text(&bugiardo).unwrap();
+    assert!(matches!(rilevato.witness(), Err(WitnessError::Broken { .. })));
+}
+
+/// Il `row_json` di una riga, così com'è nel file.
+fn righe_di_riga(testo: &str, quale: usize) -> String {
+    testo
+        .lines()
+        .filter(|l| l.starts_with("observation|"))
+        .nth(quale)
+        .expect("il file porta le righe")
+        .rsplit_once('|')
+        .map(|(_, json)| json.to_owned())
+        .expect("la riga ha la colonna row_json")
 }

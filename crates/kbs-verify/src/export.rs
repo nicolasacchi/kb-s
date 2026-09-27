@@ -6,35 +6,87 @@
 //! senza campi che possano contenere il separatore senza dichiararlo: la fuga
 //! è esplicita (`\|`, `\\`, `\n`, `\r`) e il parser la ripercorre.
 //!
-//! L'export porta tre cose, e le tre servono a chi non si fida del server:
+//! L'export porta quattro cose, e le quattro servono a chi non si fida del
+//! server:
 //!
-//! 1. la testa di ogni sessione e le prove di ogni segmento;
-//! 2. le voci del testimone, senza le quali le prove sono belle e non servono;
-//! 3. **i tre limiti**, riga per riga.
+//! 1. **le righe**, col loro JSON canonico e la loro foglia — senza le righe il
+//!    file porta la parte facile da falsificare e non quella da ricontare, e un
+//!    export che non si può rileggere è un certificato che non certifica;
+//! 2. la testa di ogni sessione e le prove di ogni segmento;
+//! 3. le voci del testimone, senza le quali le prove sono belle e non servono;
+//! 4. **i tre limiti**, riga per riga.
 //!
-//! Il punto 3 è il più importante e il meno ovvio. Un export che contiene una
+//! Il punto 4 è il più importante e il meno ovvio. Un export che contiene una
 //! catena e non i suoi limiti è un certificato che promette troppo: chi lo
 //! riceve non ha modo di sapere che cosa non gli è stato garantito. Qui i
 //! limiti viaggiano con i dati, e il parser **rifiuta** un export i cui limiti
 //! non sono identici a quelli del codice: se qualcuno li ha addolciti, il file
 //! non si apre.
+//!
+//! Il punto 1 è quello che è stato aggiunto per ultimo, e che pure mancava: un
+//! formato di uscita che non si può reimportare non è un'uscita, è un
+//! headlights-off. [`ChainExport::observations`] e [`ChainExport::witness`] sono
+//! il viaggio di ritorno, e chi riceve il file fa con essi esattamente ciò che
+//! avrebbe fatto se fosse stato dentro il sistema — che è tutto il punto.
 
-use crate::chain::{Chain, ConsistencyProof, VerifyError};
+use crate::canonical::{canonical_of, canonicalize_str, leaf_of, CanonicalError};
+use crate::chain::{Chain, ConsistencyProof, SegmentPlan, VerifyError};
 use crate::hash::{Hash, HashParseError};
 use crate::limits::{LimitId, Limits};
-use crate::witness::{Witness, WitnessEntry};
+use crate::session::SessionId;
+use crate::witness::{Witness, WitnessEntry, WitnessError};
+use kbs_core::{Millis, Observation};
 use std::fmt;
 
-/// Le colonne della tabella del registro, in quest'ordine e in nessun altro.
+/// Le colonne della tabella del registro, **prima versione**: nove, in
+/// quest'ordine e in nessun altro.
+///
+/// Il valore non cambia. Una scuola può tenere in mano un file scritto da una
+/// versione precedente di questo crate, e quel file ha questa intestazione:
+/// cambiarne l'ordine renderebbe illeggibili tutti i file già in
+/// circolazione, e l'unica cosa che ci si guadagnerebbe è l'ordine.
 pub const CHAIN_COLUMNS: [&str; 9] = [
     "kind", "session", "rows", "seq_from", "seq_to", "index", "head", "proof", "at_millis",
+];
+
+/// Le colonne del registro **versione corrente**: le nove di prima, nello
+/// stesso ordine, più `row_json` in coda.
+///
+/// La crescita è **additiva e in coda**, e questa è la forma che un formato a
+/// colonne fisse deve avere per poter invecchiare: [`CHAIN_COLUMNS`] resta
+/// leggibile, [`ChainExport::from_text`] accetta l'una e l'altra intestazione,
+/// e un file di nove colonne non porta con sé righe — semplicemente non ne
+/// porta, ed è un export di prove. Un file di dieci le porta, e chi lo riceve
+/// può ricontare; chi riceve un file di nove non può, e non finge di poterlo.
+pub const CHAIN_COLUMNS_WITH_ROWS: [&str; 10] = [
+    "kind", "session", "rows", "seq_from", "seq_to", "index", "head", "proof", "at_millis",
+    "row_json",
 ];
 
 /// Le colonne della tabella dei limiti.
 pub const LIMIT_COLUMNS: [&str; 3] = ["limit", "statement", "mitigation"];
 
+/// Una sessione da esportare: le righe e il piano con cui la catena viene
+/// costruita.
+///
+/// Il piano serve perché le prove di coerenza sono **posizioni nella testa**:
+/// esportare le prove di una catena costruita con un piano diverso produrrebbe
+/// un file in cui le prove non tornano, e un file che non torna è peggio di
+/// un file assente.
+#[derive(Debug, Clone, Copy)]
+pub struct SessionExport<'a> {
+    pub session: &'a SessionId,
+    pub rows: &'a [Observation],
+    pub plan: SegmentPlan,
+}
+
 /// Una riga dell'export.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Eq` qui non c'è, e non è una mancanza: [`Observation`] non lo dichiara, e
+/// un enum che contiene un tipo senza `Eq` non può averlo. La riga che conta
+/// per la catena è `leaf`, non `row`: `row` è il testo, e un testo si
+/// confronta.
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExportRow {
     /// La testa di una sessione, con l'intervallo di `seq` che copre. Le `seq`
     /// sono quelle delle righe, non la loro posizione: un registro che
@@ -69,10 +121,28 @@ pub enum ExportRow {
         head: Hash,
         at_millis: i64,
     },
+    /// Una riga del registro, per intero: il **JSON canonico** dell'osservazione
+    /// più la **foglia** che la catena ne calcola.
+    ///
+    /// Il payload è il testo, non il tipo: è ciò che va sulla colonna, ed è
+    /// la stessa stringa che [`leaf_of`] impegna. Tenerlo come testo evita di
+    /// doverlo ricanonicalizzare — e quindi ricalcolare — al momento di
+    /// scrivere il file, e rende impossibile che la riga scritta e la sua
+    /// foglia vengano da due forme canoniche diverse.
+    ///
+    /// La foglia è ciò che rende la riga falsificabile da sola: chi riceve il
+    /// file la ricalcola da `row_json` e vede se combacia, senza credere a
+    /// nessuna dichiarazione.
+    Observation {
+        session: String,
+        seq: u64,
+        leaf: Hash,
+        row: String,
+    },
 }
 
 /// L'export di un insieme di sessioni, con il testimone se c'è.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChainExport {
     rows: Vec<ExportRow>,
     limits: Limits,
@@ -80,9 +150,19 @@ pub struct ChainExport {
 
 impl ChainExport {
     /// Raccoglie le sessioni e il testimone nelle colonne fisse.
-    pub fn of(chains: &[Chain], witness: Option<&Witness>) -> Result<ChainExport, VerifyError> {
+    ///
+    /// Le righe di ogni sessione viaggiano con la sua testa: senza di esse il
+    /// file porta la parte facile da falsificare e non quella da ricontare, e
+    /// un export che non si può rileggere è un certificato che non certifica.
+    /// La catena viene costruita qui, dalle stesse righe: la testa dichiarata
+    /// e le prove non possono venire da una catena e le righe da un'altra.
+    pub fn of(
+        sessions: &[SessionExport<'_>],
+        witness: Option<&Witness>,
+    ) -> Result<ChainExport, VerifyError> {
         let mut rows = Vec::new();
-        for chain in chains {
+        for session in sessions {
+            let chain = Chain::build(session.session, session.rows, session.plan)?;
             rows.push(ExportRow::Head {
                 session: chain.session().to_string(),
                 rows: chain.len(),
@@ -92,6 +172,14 @@ impl ChainExport {
             });
             for proof in chain.consistency_proofs()? {
                 rows.push(segment_row(&proof));
+            }
+            for row in session.rows {
+                rows.push(ExportRow::Observation {
+                    session: chain.session().to_string(),
+                    seq: row.seq.0,
+                    leaf: leaf_of(row)?,
+                    row: canonical_of(row)?,
+                });
             }
         }
         if let Some(w) = witness {
@@ -119,10 +207,117 @@ impl ChainExport {
         self.limits
     }
 
+    /// Le righe che il file porta, nell'ordine in cui il file le porta,
+    /// raggruppate per sessione.
+    ///
+    /// Ogni riga viene **ricontata**: il `row_json` ricanonicalizzato deve
+    /// dare esattamente il testo della colonna, e la sua foglia deve essere
+    /// quella dichiarata. Un file che ha cambiato una riga senza rifarne la
+    /// foglia non si apre — ed è la falsificazione più economica da tentare,
+    /// perché il testo è leggibile e l'hash no.
+    ///
+    /// L'ordine **del file** è conservato, anche quando non è quello giusto:
+    /// riordinare qui nasconderebbe a chi verifica un file con le righe
+    /// scambiate, e lo scambio è esattamente ciò che la catena deve rendere
+    /// visibile. A riordinare è [`Chain::build`], che rifiuta una `seq` che
+    /// torna indietro o salta.
+    ///
+    /// `Vec` vuota per un file che non porta righe — cioè un file di
+    /// [`CHAIN_COLUMNS`], la prima versione — e non un errore: quel file è un
+    /// export di prove, e chi lo riceve deve poter dirlo senza indovinarlo da
+    /// un fallimento. Su quel file [`Self::witness`] funziona lo stesso, che
+    /// è la parte che un export di prove porta e non perde.
+    pub fn observations(&self) -> Result<Vec<(SessionId, Vec<Observation>)>, ExportError> {
+        let mut out: Vec<(SessionId, Vec<Observation>)> = Vec::new();
+        for (at, entry) in self.rows.iter().enumerate() {
+            let ExportRow::Observation {
+                session,
+                seq,
+                leaf,
+                row,
+            } = entry
+            else {
+                continue;
+            };
+            let canon = canonicalize_str(row)?;
+            if canon != *row {
+                return Err(ExportError::RowNotCanonical { line: at });
+            }
+            let parsed: Observation = serde_json::from_str(row).map_err(|e| ExportError::BadRow {
+                line: at,
+                reason: e.to_string(),
+            })?;
+            if leaf_of(&parsed)? != *leaf {
+                return Err(ExportError::RowLeafMismatch {
+                    line: at,
+                    declared: *leaf,
+                    recomputed: leaf_of(&parsed)?,
+                });
+            }
+            if parsed.seq.0 != *seq {
+                return Err(ExportError::RowSeqMismatch {
+                    line: at,
+                    declared: *seq,
+                    in_row: parsed.seq.0,
+                });
+            }
+            match out.iter_mut().find(|(s, _)| s.as_str() == session) {
+                Some((_, rows)) => rows.push(parsed),
+                None => out.push((SessionId::new(session.clone()), vec![parsed])),
+            }
+        }
+        Ok(out)
+    }
+
+    /// Il testimone che il file porta, ricostruito voce per voce.
+    ///
+    /// `None` quando il file non ne dichiara nessuno, che è un caso da dire e
+    /// non un caso da tacere: senza testimone le righe verificano come
+    /// coerenti e **non ancorate**, che è il primo limite.
+    ///
+    /// La testa dichiarata viene confrontata con quella ricalcolata dalle
+    /// voci: un export che dichiara una testa e porta voci che non la
+    /// ricostruiscono non è un testimone «illeggibile», è un testimone che
+    /// mente, e va detto come tale.
+    pub fn witness(&self) -> Result<Option<Witness>, WitnessError> {
+        let entries: Vec<WitnessEntry> = self
+            .rows
+            .iter()
+            .filter_map(|row| match row {
+                ExportRow::Witness {
+                    session,
+                    rows,
+                    head,
+                    at_millis,
+                } => Some(WitnessEntry {
+                    session: SessionId::new(session.clone()),
+                    rows: *rows,
+                    head: *head,
+                    at: Millis(*at_millis),
+                }),
+                _ => None,
+            })
+            .collect();
+        let witness = Witness::from_entries(entries)?;
+        if let Some(ExportRow::WitnessHead { entries, head }) = self
+            .rows
+            .iter()
+            .find(|r| matches!(r, ExportRow::WitnessHead { .. }))
+        {
+            if witness.len() != *entries || witness.head() != Some(*head) {
+                return Err(WitnessError::Broken {
+                    recomputed: witness.head(),
+                    declared: Some(*head),
+                });
+            }
+        }
+        Ok(Some(witness))
+    }
+
     /// Il testo dell'export: due tabelle, intestazione in entrambe.
     pub fn to_text(&self) -> String {
         let mut out = String::new();
-        out.push_str(&CHAIN_COLUMNS.join("|"));
+        out.push_str(&CHAIN_COLUMNS_WITH_ROWS.join("|"));
         out.push('\n');
         for row in &self.rows {
             out.push_str(&render_row(row));
@@ -141,9 +336,16 @@ impl ChainExport {
         }
         out
     }
-
     /// Rilegge l'export. Le colonne sono fisse: una riga con un numero diverso
     /// di colonne non è un export, è un file qualsiasi.
+    ///
+    /// Accetta **entrambe** le intestazioni, [`CHAIN_COLUMNS_WITH_ROWS`] e
+    /// [`CHAIN_COLUMNS`]. Un file di nove colonne è stato scritto da una
+    /// versione precedente e si apre come era: un formato a colonne fisse che
+    /// si rifiuta di rileggere i propri file più vecchi non è un formato
+    /// durevole, è un formato che cambia senza dirlo. Un file di nove colonne
+    /// non porta righe, e [`Self::observations`] su quel file restituisce un
+    /// `Vec` vuota — non un errore, e non un file che finge di portarle.
     pub fn from_text(text: &str) -> Result<ChainExport, ExportError> {
         if text.is_empty() {
             return Err(ExportError::Empty);
@@ -152,7 +354,17 @@ impl ChainExport {
         let mut rows = Vec::new();
 
         let (n, header) = lines.next().ok_or(ExportError::Empty)?;
-        expect_header(n, header, &CHAIN_COLUMNS.join("|"))?;
+        let width = if header == CHAIN_COLUMNS_WITH_ROWS.join("|") {
+            CHAIN_COLUMNS_WITH_ROWS.len()
+        } else if header == CHAIN_COLUMNS.join("|") {
+            CHAIN_COLUMNS.len()
+        } else {
+            return Err(ExportError::BadHeader {
+                line: n,
+                expected: CHAIN_COLUMNS_WITH_ROWS.join("|"),
+                found: header.to_owned(),
+            });
+        };
 
         let mut separator = n;
         for (n, line) in lines.by_ref() {
@@ -160,7 +372,7 @@ impl ChainExport {
                 separator = n;
                 break;
             }
-            rows.push(parse_row(n, line)?);
+            rows.push(parse_row(n, line, width)?);
         }
 
         let (n, header) = lines
@@ -287,15 +499,43 @@ fn render_row(row: &ExportRow) -> String {
             empty.clone(),
             at_millis.to_string(),
         ],
+        ExportRow::Observation { session, seq, leaf, .. } => vec![
+            "observation".into(),
+            session.clone(),
+            // Una riga è una riga: `rows` vale 1 e `seq_from`/`seq_to`
+            // coincidono, perché dichiarare un intervallo su una riga sola
+            // sarebbe una frase che non significa niente.
+            "1".into(),
+            seq.to_string(),
+            seq.to_string(),
+            empty.clone(),
+            leaf.to_hex(),
+            empty.clone(),
+            // `at_millis` sta nella nona colonna, che per questa riga è il
+            // timestamp del JSON: la riga lo porta già, e duplicarlo qui
+            // aprirebbe la porta a due date che non coincidono.
+            empty.clone(),
+        ],
     };
+    // La decima colonna è in coda e vale solo per `observation`: per i quattro
+    // tipi della prima versione resta vuota, così le loro nove celle sono
+    // esattamente quelle di prima, e un file vecchio resta un file vecchio.
+    cells.push(match row {
+        ExportRow::Observation { row, .. } => row.clone(),
+        _ => empty.clone(),
+    });
     for c in cells.iter_mut() {
         *c = escape(c);
     }
     cells.join("|")
 }
 
-fn parse_row(n: usize, line: &str) -> Result<ExportRow, ExportError> {
-    let c = columns(n, line, CHAIN_COLUMNS.len())?;
+/// `width` è il numero di colonne che l'intestazione del file dichiara: nove
+/// per la prima versione, dieci per quella corrente. Una riga `observation` in
+/// un file di nove colonne è un file che dichiara una cosa e ne porta un'altra,
+/// e l'errore lo dice per nome invece di restituire una riga senza payload.
+fn parse_row(n: usize, line: &str, width: usize) -> Result<ExportRow, ExportError> {
+    let c = columns(n, line, width)?;
     let num = |col: usize, name: &'static str| -> Result<u64, ExportError> {
         c[col]
             .parse::<u64>()
@@ -341,6 +581,31 @@ fn parse_row(n: usize, line: &str) -> Result<ExportRow, ExportError> {
                     value: c[8].clone(),
                 })?,
         }),
+        "observation" if width < CHAIN_COLUMNS_WITH_ROWS.len() => {
+            Err(ExportError::RowWithoutPayload { line: n })
+        }
+        "observation" => {
+            let canon = canonicalize_str(&c[9])?;
+            if canon != c[9] {
+                return Err(ExportError::RowNotCanonical { line: n });
+            }
+            let declared = num(3, "seq_from")?;
+            if let Ok(row) = serde_json::from_str::<Observation>(&canon) {
+                if row.seq.0 != declared {
+                    return Err(ExportError::RowSeqMismatch {
+                        line: n,
+                        declared,
+                        in_row: row.seq.0,
+                    });
+                }
+            }
+            Ok(ExportRow::Observation {
+                session: c[1].clone(),
+                seq: declared,
+                leaf: hash(6)?,
+                row: canon,
+            })
+        }
         other => Err(ExportError::UnknownKind {
             line: n,
             kind: other.to_owned(),
@@ -480,6 +745,32 @@ pub enum ExportError {
 
     #[error("riga {line}: contenuto dopo la tabella dei limiti")]
     TrailingContent { line: usize },
+
+    #[error("riga {line}: tipo di riga «observation» in un file di nove colonne: la colonna `row_json` non c'è, e una riga senza il suo corpo non è una riga")]
+    RowWithoutPayload { line: usize },
+
+    #[error("riga {line}: `row_json` non è nella forma canonica che la foglia impegna")]
+    RowNotCanonical { line: usize },
+
+    #[error("riga {line}: `row_json` non è un'osservazione: {reason}")]
+    BadRow { line: usize, reason: String },
+
+    #[error("riga {line}: la foglia dichiarata {declared} non è quella che la riga produce ({recomputed}): il testo è stato cambiato senza rifarne l'hash")]
+    RowLeafMismatch {
+        line: usize,
+        declared: Hash,
+        recomputed: Hash,
+    },
+
+    #[error("riga {line}: la colonna `seq_from` dichiara {declared} e la riga {in_row}")]
+    RowSeqMismatch {
+        line: usize,
+        declared: u64,
+        in_row: u64,
+    },
+
+    #[error("riga non confrontabile con la catena: {0}")]
+    Canonical(#[from] CanonicalError),
 }
 
 impl fmt::Display for ChainExport {
@@ -516,13 +807,23 @@ mod tests {
         }
     }
 
+    fn righe(n: u64, tag: &str) -> Vec<Observation> {
+        (0..n).map(|i| obs(i, tag)).collect()
+    }
+
     fn chain(name: &str, n: u64, per: usize) -> Chain {
-        let rows: Vec<Observation> = (0..n).map(|i| obs(i, "a")).collect();
-        Chain::build(&SessionId::new(name), &rows, SegmentPlan::every(per)).unwrap()
+        Chain::build(
+            &SessionId::new(name),
+            &righe(n, "a"),
+            SegmentPlan::every(per),
+        )
+        .unwrap()
     }
 
     fn export() -> ChainExport {
-        let a = chain("s1", 6, 2);
+        let (s1, s2) = (SessionId::new("s1"), SessionId::new("s2"));
+        let (r1, r2) = (righe(6, "a"), righe(2, "a"));
+        let a = Chain::build(&s1, &r1, SegmentPlan::every(2)).unwrap();
         let mut w = Witness::new();
         w.extend(WitnessEntry {
             session: SessionId::new("s1"),
@@ -531,15 +832,30 @@ mod tests {
             at: Millis(1_700_000_000_000),
         })
         .unwrap();
-        ChainExport::of(&[a, chain("s2", 2, 32)], Some(&w)).unwrap()
+        ChainExport::of(
+            &[
+                SessionExport {
+                    session: &s1,
+                    rows: &r1,
+                    plan: SegmentPlan::every(2),
+                },
+                SessionExport {
+                    session: &s2,
+                    rows: &r2,
+                    plan: SegmentPlan::every(32),
+                },
+            ],
+            Some(&w),
+        )
+        .unwrap()
     }
 
     #[test]
     fn intestazioni_e_colonne_fisse() {
         let text = export().to_text();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], CHAIN_COLUMNS.join("|"));
-        assert_eq!(lines[1].split('|').count(), 9);
+        assert_eq!(lines[0], CHAIN_COLUMNS_WITH_ROWS.join("|"));
+        assert_eq!(lines[1].split('|').count(), 10);
         let sep = lines.iter().position(|l| l.is_empty()).unwrap();
         assert_eq!(lines[sep + 1], LIMIT_COLUMNS.join("|"));
         // tre righe di limiti e nient'altro
@@ -555,6 +871,33 @@ mod tests {
         let back = ChainExport::from_text(&e.to_text()).unwrap();
         assert_eq!(back, e);
         assert_eq!(back.limits(), Limits::ALL);
+    }
+
+    #[test]
+    fn le_ripartono_e_il_testimone_torna_con_loro() {
+        let s = SessionId::new("s1");
+        let r = righe(6, "a");
+        let mut w = Witness::new();
+        w.observe(&Chain::build(&s, &r, SegmentPlan::every(2)).unwrap())
+            .unwrap();
+        let e = ChainExport::of(
+            &[SessionExport {
+                session: &s,
+                rows: &r,
+                plan: SegmentPlan::every(2),
+            }],
+            Some(&w),
+        )
+        .unwrap();
+
+        let back = ChainExport::from_text(&e.to_text()).unwrap();
+        let lette = back.observations().unwrap();
+        assert_eq!(lette.len(), 1);
+        assert_eq!(lette[0].0, s);
+        assert_eq!(lette[0].1, r);
+        let tornato = back.witness().unwrap().unwrap();
+        assert_eq!(tornato.head(), w.head());
+        assert!(tornato.check().is_ok());
     }
 
     #[test]
@@ -580,8 +923,17 @@ mod tests {
         for (i, r) in righe.iter_mut().enumerate() {
             r.seq = SeqInSession(i as u64 + 1);
         }
-        let c = Chain::build(&SessionId::new("s1"), &righe, SegmentPlan::every(2)).unwrap();
-        let text = ChainExport::of(&[c], None).unwrap().to_text();
+        let s = SessionId::new("s1");
+        let text = ChainExport::of(
+            &[SessionExport {
+                session: &s,
+                rows: &righe,
+                plan: SegmentPlan::every(2),
+            }],
+            None,
+        )
+        .unwrap()
+        .to_text();
         assert!(text.contains("head|s1|3|1|3||"), "{text}");
         assert!(text.contains("segment|s1|2|1|2|0|"), "{text}");
         assert!(text.contains("segment|s1|1|3|3|1|"), "{text}");
@@ -641,9 +993,16 @@ mod tests {
     fn colonne_mancanti_e_un_errore() {
         let text = export().to_text();
         let spezzata = text.replacen("segment|s1|2|0|1|0|", "segment|s1|2|0|1|", 1);
+        // La riga perde una cella e resta a nove: nove colonne dove
+        // l'intestazione ne dichiara dieci non sono un export, è un file che
+        // ha perso qualcosa e non lo dice.
         assert!(matches!(
             ChainExport::from_text(&spezzata),
-            Err(ExportError::ColumnCount { found: 8, .. })
+            Err(ExportError::ColumnCount {
+                found: 9,
+                expected: 10,
+                ..
+            })
         ));
     }
 
@@ -688,13 +1047,17 @@ mod tests {
     #[test]
     fn la_fuga_di_separatore_e_reversibile() {
         let session = "corso|con\\barra\ne\rrighe";
-        let chain = Chain::build(
-            &SessionId::new(session),
-            &[obs(0, "a")],
-            SegmentPlan::default_plan(),
+        let s = SessionId::new(session);
+        let r = [obs(0, "a")];
+        let e = ChainExport::of(
+            &[SessionExport {
+                session: &s,
+                rows: &r,
+                plan: SegmentPlan::default_plan(),
+            }],
+            None,
         )
         .unwrap();
-        let e = ChainExport::of(&[chain], None).unwrap();
         let text = e.to_text();
         // il separatore di colonna non compare mai scoperto in un campo della
         // tabella del registro
@@ -704,7 +1067,7 @@ mod tests {
         // il pipe sfuggito non è un separatore: lo decide il lettore, non
         // l'occhio, ed è quello che il parser conta
         for l in data_lines {
-            assert_eq!(split_columns(l).unwrap().len(), 9, "riga non a nove colonne: {l}");
+            assert_eq!(split_columns(l).unwrap().len(), 10, "riga non a dieci colonne: {l}");
         }
         assert!(text.contains("corso\\|con\\\\barra\\ne\\rrighe"));
         assert_eq!(ChainExport::from_text(&text).unwrap(), e);

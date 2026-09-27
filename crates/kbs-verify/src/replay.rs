@@ -135,13 +135,63 @@ impl ReplayRecord {
         })
     }
 
-    /// Confronta l'istanza rigenerata con quella registrata.
+    /// Confronta l'istanza rigenerata con quella registrata, **preconditi
+    /// dentro**.
+    ///
+    /// Il confronto dei soli dati dell'istanza è [`Self::compare`], che è
+    /// **privato**. La ragione è dichiarata qui, perché è il punto su cui
+    /// questo crate aveva mentito: un `Match` che confronta quattro campi e
+    /// ignora corpus e versione del generatore è un verdetto che un ricorso
+    /// può presentare come «verificato» per un replay che [`replay`] nega.
+    /// I due preconditi sono dentro il verdetto, e il verdetto torna con i
+    /// tre limiti: non esiste più il modo di ottenere `Match` senza dire
+    /// quale corpus e quale versione lo hanno prodotto.
+    ///
+    /// È la stessa operazione di [`replay`], che è il modo consigliato di
+    /// chiamarla.
+    pub fn verify<G: InstanceGenerator + ?Sized>(
+        &self,
+        corpus_hash: &str,
+        generator: &G,
+    ) -> Result<Verified<ReplayOutcome>, ReplayError> {
+        if generator.version() != self.key.generator_version {
+            return Ok(Verified::new(ReplayOutcome::Mismatch {
+                field: ReplayField::GeneratorVersion,
+                recorded: self.key.generator_version.clone(),
+                regenerated: generator.version().to_owned(),
+            }));
+        }
+        if corpus_hash != self.key.corpus_hash {
+            return Ok(Verified::new(ReplayOutcome::Mismatch {
+                field: ReplayField::CorpusHash,
+                recorded: self.key.corpus_hash.clone(),
+                regenerated: corpus_hash.to_owned(),
+            }));
+        }
+        let key = GeneratorKey {
+            corpus_hash: corpus_hash.to_owned(),
+            exercise: self.key.exercise.clone(),
+            seed: self.key.seed.clone(),
+        };
+        let regenerated = generator.generate(&key)?;
+        Ok(Verified::new(self.compare(&regenerated)?))
+    }
+
+    /// Il confronto dei soli dati dell'istanza: quattro campi e i parametri
+    /// in forma canonica.
+    ///
+    /// Non confronta corpus e versione del generatore, perché non li riceve:
+    /// per questo è **privato** e non un verdetto. Chiamarlo da fuori
+    /// produrrebbe un `ReplayOutcome::Match` — e stampato, «replay fedele» —
+    /// su un replay eseguito con il corpus sbagliato. Chi lo chiama deve
+    /// aver già guardato i due preconditi, e l'unico posto in cui ciò è
+    /// scritto è [`Self::verify`].
     ///
     /// I `params` si confrontano in forma canonica: due documenti JSON con le
     /// stesse coppie chiave-valore sono lo stesso documento, e segnalare una
     /// differenza che l'ordinamento delle chiavi ha prodotto sarebbe un falso
     /// ricorso.
-    pub fn verify(&self, regenerated: &Instance) -> Result<ReplayOutcome, ReplayError> {
+    fn compare(&self, regenerated: &Instance) -> Result<ReplayOutcome, ReplayError> {
         let cmp = [
             (ReplayField::Exercise, &self.instance.exercise, &regenerated.exercise),
             (ReplayField::Seed, &self.instance.seed, &regenerated.seed),
@@ -258,37 +308,20 @@ impl fmt::Display for ReplayOutcome {
     }
 }
 
-/// Riusa la tupla registrata per rigenerare l'istancia e confrontarla.
+/// Riusa la tupla registrata per rigenerare l'istanza e confrontarla.
 ///
 /// I due preconditi (corpus e versione del generatore) sono confrontati **come
 /// verdetto**, non come errore: un replay eseguito con il corpus sbagliato non
 /// è un replay, ed è un fatto da cui si può fare appello.
+///
+/// È [`ReplayRecord::verify`] con la sintassi che si ricorda: stesso ordine
+/// di prevalenza, stesso verdetto, stessi limiti.
 pub fn replay<G: InstanceGenerator + ?Sized>(
     record: &ReplayRecord,
     corpus_hash: &str,
     generator: &G,
 ) -> Result<Verified<ReplayOutcome>, ReplayError> {
-    if generator.version() != record.key.generator_version {
-        return Ok(Verified::new(ReplayOutcome::Mismatch {
-            field: ReplayField::GeneratorVersion,
-            recorded: record.key.generator_version.clone(),
-            regenerated: generator.version().to_owned(),
-        }));
-    }
-    if corpus_hash != record.key.corpus_hash {
-        return Ok(Verified::new(ReplayOutcome::Mismatch {
-            field: ReplayField::CorpusHash,
-            recorded: record.key.corpus_hash.clone(),
-            regenerated: corpus_hash.to_owned(),
-        }));
-    }
-    let key = GeneratorKey {
-        corpus_hash: corpus_hash.to_owned(),
-        exercise: record.key.exercise.clone(),
-        seed: record.key.seed.clone(),
-    };
-    let regenerated = generator.generate(&key)?;
-    Ok(Verified::new(record.verify(&regenerated)?))
+    record.verify(corpus_hash, generator)
 }
 
 /// Perché un replay non si è potuto tentare. Non è «il replay è diverso»:
@@ -461,7 +494,7 @@ mod tests {
             seed: "s2".into(),
             ..instance()
         };
-        let out = r.verify(&alt).unwrap();
+        let out = r.compare(&alt).unwrap();
         assert_eq!(
             out.mismatch(),
             Some((ReplayField::Seed, "s1".into(), "s2".into()))
@@ -513,7 +546,7 @@ mod tests {
         let mut alt = instance();
         // stesso documento, chiavi nell'altro ordine
         alt.params = json!({ "b": 3, "a": 2 });
-        assert_eq!(r.verify(&alt).unwrap(), ReplayOutcome::Match);
+        assert_eq!(r.compare(&alt).unwrap(), ReplayOutcome::Match);
     }
 
     #[test]
@@ -521,7 +554,7 @@ mod tests {
         let r = record();
         let mut alt = instance();
         alt.params = json!({ "a": 2, "b": 4 });
-        let out = r.verify(&alt).unwrap();
+        let out = r.compare(&alt).unwrap();
         let (field, recorded, regenerated) = out.mismatch().unwrap();
         assert_eq!(field, ReplayField::Params);
         assert_eq!(recorded, r#"{"a":2,"b":3}"#);

@@ -104,6 +104,14 @@ pub fn canonicalize_str(text: &str) -> Result<String, CanonicalError> {
     canonicalize(&serde_json::from_str(text)?)
 }
 
+/// La forma canonica di un valore serializzabile, senza materializzare
+/// [`serde_json::Value`]: è il testo che finisce in `row_json` nell'export, e
+/// deve essere lo stesso che [`leaf_of`] impegna, o la riga e la sua foglia
+/// racconterebbero due documenti diversi.
+pub fn canonical_of<T: Serialize>(value: &T) -> Result<String, CanonicalError> {
+    canonicalize(&serde_json::to_value(value)?)
+}
+
 /// La foglia di un valore, senza materializzare la sua forma canonica.
 pub fn leaf_of_value(value: &serde_json::Value) -> Result<Hash, CanonicalError> {
     let mut sink = HashSink(<sha2::Sha256 as sha2::Digest>::new());

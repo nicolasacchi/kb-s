@@ -1,10 +1,23 @@
-//! I tre limiti dichiarati, e il tipo [`Verified`] che non lascia scordarli.
+//! I tre limiti dichiarati, e il tipo [`Verified`] che li porta con sé.
 //!
 //! D6 chiede che i tre limiti siano **nel codice**, non nella documentazione,
 //! perché sono le cose che un revisore cerca per primo. Un tipo che contiene
-//! il verdetto e i limiti insieme rende impossibile la dimenticanza: non
-//! esiste un modo di ottenere il verdetto da solo, e [`Verified`] stampa i
-//! limiti ogni volta che viene stampato il verdetto.
+//! il verdetto e i limiti insieme fa due cose, e solo due, ed è bene
+//! dirle con precisione invece di esagerarle:
+//!
+//! 1. **ogni verdetto prodotto da questo crate torna dentro [`Verified`]**, e
+//!    quindi stamparlo stampa anche i tre limiti — un `println!("{v}")` non
+//!    può mostrare un verdetto senza dire che cosa non è garantito;
+//! 2. **non esiste una funzione pubblica di questo crate che restituisca un
+//!    verdetto nudo**: il tipo restituito lo dichiara, e se qualcuno lo
+//!    spoglia la firma non compila più.
+//!
+//! Ciò che invece [`Verified`] **non** fa è vietare al chiamante di prendere
+//! il verdetto da solo: [`Verified::verdict`], [`Verified::into_parts`] e
+//! [`Verified::map`] ci arrivano, e ci arrivano di proposito — un auditor ha
+//! il diritto di leggere il verdetto, non solo di guardarlo stampare. Quel
+//! che segue il verdetto nudo è una scelta del chiamante, e il tipo non ha
+//! la pretesa di averla impedita.
 //!
 //! I tre limiti sono dichiarati come un array di lunghezza tre: toglierne uno
 //! non è una modifica, è un errore di compilazione.
@@ -145,11 +158,19 @@ impl fmt::Display for Limits {
 
 /// Un verdetto **con** i tre limiti.
 ///
-/// Non esiste un modo di prendere il verdetto da solo: `into_parts` restituisce
-/// entrambi, e li chiama entrambi. `Display` stampa il verdetto e poi i
-/// limiti, quindi anche un `println!("{verdetto}")` mostra che cosa non è
-/// garantito.
-#[must_use = "un verdetto senza i tre limiti dichiarati non viene stampato: usa Display, verdict() o into_parts()"]
+/// Il verdetto e i limiti stanno nello stesso valore, e [`fmt::Display`] li
+/// stampa entrambi. **Esiste** un modo di prendere il verdetto da solo —
+/// [`Self::verdict`] per riferimento, [`Self::into_parts`] per valore, e
+/// [`Self::map`] che restituisce un `Verified` dal quale [`Self::verdict`]
+/// ridà il verdetto nudo — ed è dichiarato qui perché il commento non
+/// prometta più di quanto il tipo faccia: non è vietato, è nominato.
+///
+/// Ciò che il tipo rende impossibile è un'altra cosa, ed è la cosa che
+/// conta: **nessuna funzione pubblica di questo crate restituisce un
+/// verdetto nudo**, quindi il percorso che porta a un verdetto passa da qui e
+/// porta con sé i limiti. Se [`crate::verify`] o [`crate::replay`] restituissero
+/// il tipo grezzo, il crate non compilerebbe più.
+#[must_use = "un verdetto ignorato non è un verdetto: `Verified` porta con sé i tre limiti, e `Display` li stampa. `verdict()` e `into_parts()` esistono e restituiscono il verdetto da solo — se li usi, i limiti sono tuoi, leggili con `limits()`"]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Verified<T> {
     verdict: T,
@@ -164,7 +185,9 @@ impl<T> Verified<T> {
         }
     }
 
-    /// Il verdetto. I limiti sono a portata di mano con [`Self::limits`].
+    /// Il verdetto. **È un modo di prendere il verdetto da solo**, dichiarato
+    /// come tale: i limiti restano in `self` e vanno presi con
+    /// [`Self::limits`]. Chi stampa il verdetto nudo stampa la parte facile.
     pub fn verdict(&self) -> &T {
         &self.verdict
     }
@@ -174,12 +197,20 @@ impl<T> Verified<T> {
         self.limits
     }
 
-    /// Verdetto e limiti, per entrambi. Non esiste `into_verdict`.
+    /// Verdetto e limiti, per entrambi. **Non esiste `into_verdict`**, ma la
+    /// coppia qui è già un verdetto nudo a portata di mano: chi scrive
+    /// `let (v, _) = …` sceglie di lasciare i limiti indietro, e lo sceglie
+    /// in una riga che il compilatore non può vietare. È il motivo per cui il
+    /// modulo dichiara il limite come *portato con sé*, non come *impossibile
+    /// da lasciare* — e per cui l'unica garanzia che questo tipo fa è che
+    /// nessuna funzione pubblica del crate lo restituisca nudo.
     pub fn into_parts(self) -> (T, Limits) {
         (self.verdict, self.limits)
     }
 
-    /// Applica una funzione al verdetto tenendo i limiti.
+    /// Applica una funzione al verdetto tenendo i limiti. Anche questo è un
+    /// modo per arrivare al verdetto da solo — `map(...).verdict()` — e come
+    /// gli altri è dichiarato, non nascosto.
     pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Verified<U> {
         Verified {
             verdict: f(self.verdict),
