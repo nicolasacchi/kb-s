@@ -6,7 +6,9 @@
 
 #![allow(dead_code)]
 
+mod catena;
 mod export;
+mod inventory;
 mod italian_search;
 mod publication;
 mod registers;

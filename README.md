@@ -98,9 +98,12 @@ distingue un tutor da un ripetitore di esempi.
 
 Non un LLM generativo, non un embedder, non un correttore semantico. L'LLM è
 **uno strumento del docente**, esterno, che produce materiale che il docente poi
-ratifica. La catena di grading è `deterministic → peer → human` e in
-`kbs-core` **non esiste una variante «modello»** in `GraderKind`: la regola è resa
-impossibile dal tipo, non documentata in un commento.
+ratifica. La catena di grading è `deterministic → peer → human`, e in `kbs-core`
+`GraderKind` ha **quattro** varianti — `Deterministic`, `Peer`, `Human`, `Teacher` —
+ma **nessuna variante «modello»**: la regola è resa impossibile dal tipo, non
+documentata in un commento. `Teacher` sta in catena perché un giudizio del docente
+su ispezione vale quanto `Human` e registra chi l'ha fatto; la catena a tre
+livelli di D3 descrive l'ordine di preferenza, non l'elenco dei giudicanti.
 
 Il motivo dichiarato è economico e di lock-in; il motivo **vero** è un altro, e
 va detto: nessun dato dello studente esce dal prodotto, perché nel prodotto non

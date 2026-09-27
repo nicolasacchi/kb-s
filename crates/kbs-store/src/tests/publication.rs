@@ -251,6 +251,73 @@ fn un_titolo_vuoto_non_entra() {
 }
 
 #[test]
+fn un_argomento_non_cambia_corso_scrivendolo() {
+    // Il caso che il test non copriva prima: ogni `upsert` di questa scuola
+    // riusciva con `..live.clone()`, quindi il `course_id` non era mai cambiato e
+    // la colonna non era mai stata provata. Un docente che sposta la propria
+    // unità in un altro corso portava con sé la ratifica — sua, e di un corso in
+    // cui non insegna nessuno.
+    let mut s = School::new();
+    let live = s.published(1);
+
+    // Su una riga **citabile** è il caso che conta: la ratifica resta valida e
+    // l'argomento resta in corso, quindi senza il rifiuto resterebbe citabile in
+    // un corso diverso da quello in cui è stata data.
+    let spostato: Argument = Argument {
+        course: s.other_course.clone(),
+        ..live.clone()
+    };
+    let err = s
+        .store
+        .upsert_argument(&spostato)
+        .expect_err("il corso è il perimetro di condivisione, non una colonna");
+    assert_eq!(err.rule(), "identity.course");
+    match err {
+        Error::CourseReparent { ref from, ref to, .. } => {
+            assert_eq!(from, &s.course);
+            assert_eq!(to, &s.other_course);
+        }
+        other => panic!("atteso CourseReparent, ottenuto {other:?}"),
+    }
+    // E la riga non si è mossa: la verifica è sul database, non sull'errore.
+    let ancora = s
+        .store
+        .read_argument(&s.teacher, &live.id)
+        .expect("rilettura");
+    assert_eq!(ancora.course, s.course);
+    assert_eq!(ancora.state, PublicationState::InCorso);
+    assert!(ancora.is_citable_now(), "la ratifica non è stata toccata");
+
+    // E vale anche per una bozza: non è una transizione di stato, è l'identità.
+    // Un argomento che cambia percorso cambia id, e un id nuovo è un argomento
+    // nuovo.
+    let bozza = s.draft(2);
+    let err = s
+        .store
+        .upsert_argument(&Argument {
+            course: s.other_course.clone(),
+            ..bozza.clone()
+        })
+        .expect_err("una bozza non cambia corso da sola");
+    assert_eq!(err.rule(), "identity.course");
+    let ancora_bozza = s
+        .store
+        .read_argument(&s.teacher, &bozza.id)
+        .expect("rilettura della bozza");
+    assert_eq!(ancora_bozza.course, s.course);
+
+    // Il percorso invece si può correggere, e senza toccare il corso: è un file
+    // sbagliato, non un argomento spostato. Qui l'id resta quello che il
+    // chiamante ha portato, e il rifiuto è un altro.
+    s.store
+        .upsert_argument(&Argument {
+            rel_path: Some("corsi/analisi-1/lezione-02.html".into()),
+            ..bozza.clone()
+        })
+        .expect("il percorso si corregge");
+}
+
+#[test]
 fn il_ciclo_nei_prerequisiti_si_rifiuta_e_nomina_la_regola() {
     let mut s = School::new();
     let a = s.draft(1);
@@ -397,8 +464,15 @@ fn la_provenienza_generata_porta_il_suo_lock_e_i_suoi_eventi() {
     }
     let eventi = s
         .store
-        .generations_for(&generato.id)
+        .generations_for(&s.teacher, &generato.id)
         .expect("eventi");
     assert_eq!(eventi.len(), 1);
     assert_eq!(eventi[0].lock.model_id, "claude-sonnet-4-5");
+
+    // E la provenienza di un argomento che non si può leggere non si legge: è la
+    // differenza fra una lettura con predicato e una senza, e senza predicato la
+    // risposta era la stessa per chiunque avesse un id.
+    s.store
+        .generations_for(&s.student, &generato.id)
+        .expect_err("uno studente non legge la provenienza di un argomento in bozza");
 }

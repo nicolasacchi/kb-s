@@ -72,7 +72,7 @@ fn uno_che_non_e_nulla_del_corso_non_vede_nulla() {
 }
 
 #[test]
-fn un_argomento_che_non_esiste_e_la_stessa_risposta_di_uno_che_non_si_vede() {
+fn i_rifiuti_di_una_bozza_sono_gli_stessi_byte_di_una_riga_inesistente() {
     let mut s = School::new();
     let draft = s.draft(1);
 
@@ -84,11 +84,35 @@ fn un_argomento_che_non_esiste_e_la_stessa_risposta_di_uno_che_non_si_vede() {
         .store
         .read_argument(&s.student, &draft.id)
         .expect_err("non visibile");
-    // Due varianti diverse ma la stessa risposta: se il chiamante potesse
-    // distinguerle, «no esiste» e «non lo vedi» sarebbero due canali per
-    // imparare che cosa c'è nel corso.
-    assert!(matches!(inesistente, Error::NotReadable { .. }));
-    assert!(matches!(non_visibile, Error::NotReadable { .. }));
+    // **Gli stessi byte**, non la stessa variante: due errori della stessa variante
+    // possono portare campi diversi, e un campo che cambia è un oracolo. `arg_<fnv16
+    // del percorso>` è enumerabile da chiunque abbia il corpus, quindi ogni
+    // differenza fra le due risposte — anche lo stato di pubblicazione della riga —
+    // è un canale per imparare che cosa c'è in un corso.
+    assert!(
+        matches!(inesistente, Error::NotReadable { .. }) && matches!(non_visibile, Error::NotReadable { .. }),
+        "le due risposte sono entrambe NotReadable"
+    );
+    let senza_id = |e: &Error| {
+        e.to_string()
+            .split_whitespace()
+            .filter(|w| !w.starts_with("arg_"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    assert_eq!(
+        senza_id(&inesistente),
+        senza_id(&non_visibile),
+        "«non c'è» e «non lo vedi» non possono essere due messaggi diversi: l'id \
+         lo ha chiesto il chiamante, tutto il resto no"
+    );
+    // E la difesa non può dipendere da chi traduce l'errore in una risposta: il
+    // testo non contiene lo stato, quindi non lo contiene in nessuna
+    // traduzione.
+    let testo = non_visibile.to_string();
+    for stato in ["Bozza", "InCorso", "DelDocente", "Archiviato"] {
+        assert!(!testo.contains(stato), "il rifiuto nomina lo stato: {testo}");
+    }
 }
 
 #[test]
@@ -134,7 +158,27 @@ fn il_filtro_per_stato_e_il_predicato_non_si_scambiano() {
 #[test]
 fn l_argomento_derivato_e_del_chi_ha_scritto_la_sorgente() {
     let mut s = School::new();
-    let source = s.draft(1);
+    // **L'autore della sorgente non insegna il corso.** È la riga che rende questo
+    // test un test: con un autore che è anche docente, l'attribuzione lungo la
+    // catena non serve a niente, perché `may_read` apre comunque sul ramo
+    // `Teaches` e il test passerebbe anche con la funzione dell'attribuzione
+    // cancellata dal file. Un collega che collabora a un corso di cui non è docente
+    // scrive la sorgente, deriva da quella, e deve poter rivedere il derivato in
+    // bozza: senza l'attribuzione risalita non potrebbe, e un autore che non vede
+    // il proprio lavoro è un difetto, non una severità.
+    let autore = s.outsider.clone();
+    let source = {
+        let a = School::argument(&s.course, &autore, 1, PublicationState::Bozza);
+        s.store.upsert_argument(&a).expect("bozza della sorgente");
+        a
+    };
+    assert!(
+        s.store
+            .relations_of(&autore, &s.course)
+            .expect("relazioni")
+            .is_empty(),
+        "l'autore non ha relazioni col corso: è il caso che il predicato deve coprire"
+    );
     // `kbs_core::Origin::Derived` non ha il campo `by`: l'attribuzione risale
     // lungo la catena, altrimenti un argomento derivato non avrebbe un autore
     // e nessuno potrebbe vederne la bozza.
@@ -145,18 +189,42 @@ fn l_argomento_derivato_e_del_chi_ha_scritto_la_sorgente() {
             from: source.id.clone(),
             at: Millis(1_700_000_000_000),
         },
-        ..School::argument(&s.course, &s.teacher, 9, PublicationState::Bozza)
+        ..School::argument(&s.course, &autore, 9, PublicationState::Bozza)
     };
     s.store.upsert_argument(&derived).expect("derivato");
 
     let by_source_author = s
         .store
-        .read_argument(&s.teacher, &derived.id)
-        .expect("l'autore della sorgente vede il derivato");
+        .read_argument(&autore, &derived.id)
+        .expect("l'autore della sorgente vede il derivato, benché non insegni");
     assert_eq!(by_source_author.id, derived.id);
+    // E un derivato di un derivato risale ancora: la catena non è lunga uno.
+    let derivato_del_derivato = kbs_core::Argument {
+        id: ArgumentId::from_rel_path("corsi/course_0001/derivato-del-derivato.html"),
+        prerequisites: vec![],
+        origin: Origin::Derived {
+            from: derived.id.clone(),
+            at: Millis(1_700_000_000_000),
+        },
+        ..School::argument(&s.course, &autore, 10, PublicationState::Bozza)
+    };
+    s.store
+        .upsert_argument(&derivato_del_derivato)
+        .expect("derivato del derivato");
+    s.store
+        .read_argument(&autore, &derivato_del_derivato.id)
+        .expect("l'attribuzione risale lungo tutta la catena");
+    // Chi non c'entra non vede nessuno dei due: il predicato non è stato allargato,
+    // è stato corretto. Il docente del corso vede tutto, e va bene — insegna.
     s.store
         .read_argument(&s.student, &derived.id)
         .expect_err("uno studente non vede un derivato in bozza");
+    s.store
+        .read_argument(&s.other_teacher, &derivato_del_derivato.id)
+        .expect_err("un docente di un altro corso non vede un derivato in bozza");
+    s.store
+        .read_argument(&s.teacher, &derived.id)
+        .expect("il docente del corso vede il derivato: insegna");
 }
 
 #[test]

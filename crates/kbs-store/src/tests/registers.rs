@@ -103,7 +103,7 @@ fn il_seq_e_assegnato_dal_registro_e_non_da_chi_scrive() {
 
     let lette = s
         .store
-        .observations_in_session(&session)
+        .observations_in_session(&s.teacher, &session)
         .expect("lettura in ordine");
     assert_eq!(
         lette.iter().map(|o| o.seq.0).collect::<Vec<_>>(),
@@ -191,7 +191,7 @@ fn le_osservazioni_non_si_aggiornano_e_non_si_cancellano_nemmeno_da_conn() {
 
     let lette = s
         .store
-        .observations_in_session(&sessione)
+        .observations_in_session(&s.teacher, &sessione)
         .expect("rilettura");
     assert_eq!(lette.len(), 1);
     assert_eq!(lette[0].at, riga.at);
@@ -319,9 +319,8 @@ fn un_giudizio_senza_rubric_non_entra() {
         .expect("con la rubric esistente");
     let letta = s
         .store
-        .rubric_version(&rubric)
-        .expect("rubrica")
-        .expect("esiste");
+        .rubric_version(&s.teacher, &rubric)
+        .expect("rubrica");
     assert_eq!(letta.scale.len(), 2, "il voto ha una scala");
 }
 
@@ -363,7 +362,9 @@ fn chi_ha_emesso_il_giudizio_lo_rivede_e_il_compagno_no() {
     let arg = s.published(1);
     let rubric = rubric(&mut s);
     let sessione = s.session(Register::Gradings);
-    // Un pari, che non è docente e non è lo studente.
+    // Un pari, che non è docente e non è lo studente valutato. È **iscritto al
+    // corso**, perché un pari è un compagno: senza l'iscrizione non potrebbe
+    // neppure vedere l'argomento, e il test passerebbe per una ragione sbagliata.
     let pari = s.outsider.clone();
     s.store
         .upsert_person(&crate::types::Person {
@@ -372,6 +373,15 @@ fn chi_ha_emesso_il_giudizio_lo_rivede_e_il_compagno_no() {
             created_at: Millis(T0),
         })
         .expect("persona");
+    s.store
+        .add_relation(&crate::types::CourseRelation {
+            person: pari.clone(),
+            course: s.course.clone(),
+            relation: kbs_core::Relation::EnrolledIn,
+            since: Millis(T0),
+            until: None,
+        })
+        .expect("iscrizione del pari");
     s.store
         .append_grading(
             &sessione,
@@ -382,13 +392,68 @@ fn chi_ha_emesso_il_giudizio_lo_rivede_e_il_compagno_no() {
             },
         )
         .expect("giudizio del pari");
+    // **Il secondo giudizio è la riga che rende questo test possibile.** Con un
+    // giudizio solo, «il pari vede una riga» e «il pari vede tutto il registro» sono
+    // la stessa frase: il test passava con l'escalation in piedi, perché non c'era
+    // niente che non potesse vedere. Il docente che giudica lo stesso studente su
+    // un altro argomento mette sotto gli occhi la differenza.
+    let altro_arg = s.published(2);
+    s.store
+        .append_grading(
+            &sessione,
+            GradingDraft {
+                id: "grd-002".into(),
+                argument: altro_arg.id.clone(),
+                graded_by: s.teacher.clone(),
+                kind: GraderKind::Teacher,
+                ..grading(2, &s, &altro_arg.id, &rubric)
+            },
+        )
+        .expect("giudizio del docente");
 
+    let letti = s
+        .store
+        .student_gradings(&pari, &s.student, &s.course)
+        .expect("chi ha emesso rivede il proprio giudizio");
+    assert_eq!(
+        letti.len(),
+        1,
+        "il pari vede il proprio giudizio e non quello del docente"
+    );
+    assert_eq!(letti[0].graded_by, pari);
+    assert_eq!(letti[0].kind, GraderKind::Peer);
+
+    // E lo stesso vale per un singolo argomento: il pari vede il proprio
+    // giudizio su quell'argomento, e su quell'argomento non ce ne sono altri,
+    // quindi l'escalation si vede sul corso intero. Qui si prova il percorso
+    // con l'argomento, che è quello che chiama `gradings_for`.
+    let sull_argomento = s
+        .store
+        .gradings_for(&pari, &s.student, &arg.id)
+        .expect("il proprio giudizio sull'argomento");
+    assert_eq!(sull_argomento.len(), 1);
+    assert_eq!(sull_argomento[0].graded_by, pari);
+    // E non può leggere il registro intero nemmeno passando dall'argomento
+    // dell'altro giudizio.
+    s.store
+        .gradings_for(&pari, &s.student, &altro_arg.id)
+        .expect_err("il giudizio del docente non è del pari");
+
+    // Lo studente e il docente, invece, vedono tutto: le due righe della regola
+    // non sono la stessa, e qui i due esiti coincidono.
     assert_eq!(
         s.store
-            .student_gradings(&pari, &s.student, &s.course)
-            .expect("chi ha emesso rivede il proprio giudizio")
+            .student_gradings(&s.student, &s.student, &s.course)
+            .expect("lo studente vede il proprio registro")
             .len(),
-        1
+        2
+    );
+    assert_eq!(
+        s.store
+            .student_gradings(&s.teacher, &s.student, &s.course)
+            .expect("il docente vede tutto il registro del corso")
+            .len(),
+        2
     );
 
     // Un altro pari non vede nulla: la difesa procedurale primaria è la
@@ -526,16 +591,139 @@ fn il_coorte_sotto_soglia_non_esiste_e_il_dato_individuale_resta() {
             .len(),
         1
     );
+}
+
+#[test]
+fn il_segnale_di_coorte_conta_le_persone_e_confronta_il_numero() {
+    // **Cinque tentativi di uno studente non sono cinque studenti.** Era esattamente
+    // il buco: la soglia era chiusa, il `CHECK` del database pure, e nessuno dei
+    // due guardava le righe. `UNIQUE` è su `(session_id, seq)`, quindi i cinque
+    // tentativi erano perfettamente conformi e il segnale che diceva alla classe
+    // «cinque studenti sbagliano questo argomento» era il lavoro di uno.
+    let mut s = School::new();
+    let arg = s.published(1);
+    let sessione = s.session(Register::Observations);
+    for tentativo in 1..=5u32 {
+        s.store
+            .append_observation(
+                &sessione,
+                ObservationDraft {
+                    id: format!("obs-tentativo-{tentativo}"),
+                    evidence: Evidence::Checked {
+                        exercise: "ex-1".into(),
+                        instance: format!("seed-{tentativo}"),
+                        correct: false,
+                    },
+                    ..observation(tentativo, &s, &arg.id)
+                },
+            )
+            .expect("tentativo");
+    }
+    let dichiarato = CohortSignal {
+        course: s.course.clone(),
+        cohort: s.cohort(),
+        argument: arg.id.clone(),
+        failing: 5,
+        total: 5,
+        at: Millis(T0),
+    };
+    match s
+        .store
+        .record_cohort_signal(&dichiarato)
+        .expect_err("una persona sola non è una classe")
+    {
+        Error::CohortCountMismatch {
+            declared_failing,
+            counted_failing,
+            declared_total,
+            counted_total,
+        } => {
+            assert_eq!(declared_failing, 5, "quello che il chiamante dichiarava");
+            assert_eq!(declared_total, 5);
+            assert_eq!(counted_failing, 1, "quello che le righe dicono: una persona");
+            assert_eq!(counted_total, 1, "e `total` è lo stesso conteggio: chi ha una riga");
+        }
+        other => panic!("atteso CohortCountMismatch, ottenuto {other:?}"),
+    }
+    assert!(
+        s.store.cohort_signals(&arg.id).expect("lettura").is_empty(),
+        "un segnale che non torna con le righe non entra"
+    );
+
+    // Ora il numero torna davvero: cinque persone diverse, un tentativo ciascuna, e
+    // il segnale entra con quei numeri e non con altri.
+    for n in 0..5u32 {
+        let altro = PersonId::fixture(20 + n);
+        s.store
+            .upsert_person(&crate::types::Person {
+                id: altro.clone(),
+                display_name: format!("Compagno {n}"),
+                created_at: Millis(T0),
+            })
+            .expect("persona");
+        s.store
+            .append_observation(
+                &sessione,
+                ObservationDraft {
+                    id: format!("obs-compagno-{n}"),
+                    student: altro,
+                    evidence: Evidence::Checked {
+                        exercise: "ex-1".into(),
+                        instance: format!("seed-compagno-{n}"),
+                        correct: false,
+                    },
+                    ..observation(100 + n, &s, &arg.id)
+                },
+            )
+            .expect("tentativo del compagno");
+    }
+    // Una sesta persona che risponde bene non conta fra chi sbaglia: `failing`
+    // è un conteggio di persone in errore, `total` di persone che ci hanno
+    // lavorato sopra.
+    let bravo = PersonId::fixture(40);
+    s.store
+        .upsert_person(&crate::types::Person {
+            id: bravo.clone(),
+            display_name: "Chi ha risposto bene".to_string(),
+            created_at: Millis(T0),
+        })
+        .expect("persona");
+    s.store
+        .append_observation(
+            &sessione,
+            ObservationDraft {
+                id: "obs-bravo".into(),
+                student: bravo,
+                evidence: Evidence::Checked {
+                    exercise: "ex-1".into(),
+                    instance: "seed-bravo".into(),
+                    correct: true,
+                },
+                ..observation(200, &s, &arg.id)
+            },
+        )
+        .expect("tentativo corretto");
 
     s.store
         .record_cohort_signal(&CohortSignal {
-            failing: 5,
-            ..sotto
+            failing: 6,
+            total: 7,
+            ..dichiarato.clone()
         })
-        .expect("alla soglia entra");
+        .expect("alla soglia, e con i numeri che le righe dicono");
     let letti = s.store.cohort_signals(&arg.id).expect("lettura");
     assert_eq!(letti.len(), 1);
-    assert_eq!(letti[0].failing, 5);
+    assert_eq!(letti[0].failing, 6, "sei persone, non sei righe: i 5 tentativi sono di uno");
+    assert_eq!(letti[0].total, 7, "chi ha prodotto qualcosa: sette persone, compresa chi ha risposto bene");
+
+    // E un numero che torna a metà non entra: il confronto è sui due numeri insieme.
+    s.store
+        .record_cohort_signal(&CohortSignal {
+            failing: 6,
+            total: 5,
+            ..dichiarato
+        })
+        .expect_err("`failing <= total` è garantito dal conteggio, non dalla promessa");
 }
 
 #[test]
@@ -624,4 +812,184 @@ fn un_id_inesistente_qui_non_e_un_panico() {
         })
         .expect_err("la persona e l'argomento non esistono");
     assert!(err.to_string().contains("FOREIGN KEY"), "{err}");
+}
+
+#[test]
+fn una_sessione_si_legge_per_intera_o_non_si_legge() {
+    // La firma non aveva una persona, e `SessionId` è un newtype trasparente su
+    // `String` costruito da `ses_<registro>_<millisecondi>_<lunghezza della nota>`:
+    // enumerabile. Questo test è quello che manca prima della correzione, e non è
+    // una formalità: senza il predicato la risposta conteneva `student`,
+    // `course_id`, `cohort`, `evidence` e `judged_by` di tutti, in tutti i corsi.
+    let mut s = School::new();
+    let arg = s.published(1);
+    let sessione = s.session(Register::Observations);
+    s.store
+        .append_observation(&sessione, observation(1, &s, &arg.id))
+        .expect("osservazione");
+
+    // Chi insegna il corso della sessione la legge per intera: è la destinazione
+    // delle righe, che sono l'input di `kbs_verify::Chain`.
+    let lette = s
+        .store
+        .observations_in_session(&s.teacher, &sessione)
+        .expect("il docente legge la sessione del proprio corso");
+    assert_eq!(lette.len(), 1);
+    assert_eq!(lette[0].student, s.student);
+
+    // Lo studente è iscritto al corso e non insegna: la sessione non è sua.
+    s.store
+        .observations_in_session(&s.student, &sessione)
+        .expect_err("lo studente non legge una sessione che non è sua");
+    // E non leggere una sessione non rende leggibili le righe singole: le due
+    // strade hanno soggetti diversi e lo dichiarano.
+    s.store
+        .observations_in_session(&s.other_teacher, &sessione)
+        .expect_err("un docente di un altro corso non legge la sessione");
+
+    // Una sessione di un altro corso: la firma accetta l'id di chiunque, e la
+    // risposta è la stessa — `[]` — per una sessione che non esiste e per una
+    // vuota, quindi enumerare id non dà nulla.
+    let vuota = s.session(Register::Observations);
+    assert!(
+        s.store
+            .observations_in_session(&s.student, &vuota)
+            .expect("una sessione vuota è un elenco vuoto")
+            .is_empty()
+    );
+    assert!(
+        s.store
+            .observations_in_session(&s.student, &kbs_verify::SessionId::new("ses_inesistente_0_0"))
+            .expect("una sessione inesistente è un elenco vuoto")
+            .is_empty()
+    );
+}
+
+#[test]
+fn il_checker_e_le_risposte_sono_del_docente_e_non_dello_studente() {
+    let mut s = School::new();
+    let arg = s.published(1);
+    let bozza = s.draft(2);
+    let esercizio = kbs_core::Exercise {
+        id: "ex-1".into(),
+        course: s.course.clone(),
+        argument: arg.id.clone(),
+        family: "algebra-polinomio".into(),
+        generator_version: "kbs-exercise/1".into(),
+        prompt: "Sviluppa il prodotto e mettilo in forma normale.".into(),
+        // Il checker **è** la risposta: `Set { elements }` è l'insieme delle
+        // risposte corrette, non una pista.
+        checker: kbs_core::Checker::Set {
+            elements: vec!["x2+2x+1".into()],
+        },
+        created_at: Millis(T0),
+        created_by: s.teacher.clone(),
+    };
+    s.store.upsert_exercise(&esercizio).expect("esercizio");
+    s.store
+        .put_instance(&kbs_core::Instance {
+            exercise: "ex-1".into(),
+            seed: "seed-1".into(),
+            rendered_prompt: "Sviluppa (x+1)(x+1).".into(),
+            expected: "x2+2x+1".into(),
+            params: serde_json::json!({}),
+        })
+        .expect("istanza");
+    let esercizio_su_bozza = kbs_core::Exercise {
+        id: "ex-2".into(),
+        argument: bozza.id.clone(),
+        ..esercizio.clone()
+    };
+    s.store
+        .upsert_exercise(&esercizio_su_bozza)
+        .expect("esercizio su bozza");
+
+    // Il docente che insegna legge entrambi i lati: il checker e le risposte.
+    let letto = s
+        .store
+        .exercise(&s.teacher, &s.course, "ex-1")
+        .expect("il docente legge il proprio esercizio");
+    assert_eq!(letto.checker, esercizio.checker);
+    let istanze = s
+        .store
+        .instances_of(&s.teacher, &s.course, "ex-1")
+        .expect("il docente legge le istanze");
+    assert_eq!(istanze.len(), 1);
+    assert_eq!(istanze[0].expected, "x2+2x+1");
+
+    // **Uno studente iscritto al corso, con l'argomento in corso, non ottiene
+    // niente.** È la riga che chiude il buco: `may_read` da solo aprirebbe
+    // (l'argomento è in corso e lo studente è iscritto), e la risposta sarebbe a
+    // una chiamata di distanza. D8 dice che l'integrità è per costruzione perché
+    // la risposta non è nel materiale che lo studente vede.
+    s.store
+        .exercise(&s.student, &s.course, "ex-1")
+        .expect_err("lo studente non legge il checker di un argomento in corso");
+    s.store
+        .instances_of(&s.student, &s.course, "ex-1")
+        .expect_err("lo studente non legge le risposte");
+
+    // Un corso che non si insegna: nemmeno l'id dell'esercizio è la risposta,
+    // perché il rifiuto non distingue «non c'è» da «non è tuo».
+    s.store
+        .exercise(&s.other_teacher, &s.other_course, "ex-1")
+        .expect_err("un docente di un altro corso non legge l'esercizio");
+    s.store
+        .exercise(&s.teacher, &s.other_course, "ex-1")
+        .expect_err("il corso dichiarato non combacia con quello della riga");
+    s.store
+        .exercise(&s.teacher, &s.course, "ex-inesistente")
+        .expect_err("un id che non esiste dà lo stesso rifiuto");
+
+    // E l'esercizio su una bozza resta del docente, anche per il docente: la bozza
+    // non è materiale che si legge da solo, e il predicato passa dall'argomento.
+    let su_bozza = s
+        .store
+        .exercise(&s.teacher, &s.course, "ex-2")
+        .expect("il docente vede il proprio esercizio anche in bozza");
+    assert_eq!(su_bozza.argument, bozza.id);
+    s.store
+        .exercise(&s.student, &s.course, "ex-2")
+        .expect_err("uno studente non vede un esercizio su una bozza");
+}
+
+#[test]
+fn la_rubrica_e_lo_strumento_del_docente() {
+    let mut s = School::new();
+    let _ = rubric(&mut s);
+    // Il docente che insegna legge la scala.
+    let letta = s
+        .store
+        .rubric_version(&s.teacher, "rub-1@1")
+        .expect("rubrica");
+    assert_eq!(letta.scale.len(), 2);
+    // Lo studente no: la scala è lo strumento con cui il docente misura, e chi
+    // non insegna non misura.
+    s.store
+        .rubric_version(&s.student, "rub-1@1")
+        .expect_err("uno studente non legge la scala di valutazione");
+    s.store
+        .rubric_version(&s.other_teacher, "rub-1@1")
+        .expect_err("un docente di un altro corso non legge la rubrica");
+    // E l'id che non esiste dà **lo stesso** errore: se dicesse `None`, la firma
+    // avrebbe due risposte e una delle due sarebbe un canale per imparare che
+    // cosa c'è in una scuola.
+    // Le due domande sono poste dalla **stessa persona**: è l'unico confronto che
+    // ha senso, perché il messaggio nomina anche chi chiede.
+    let inesistente = s
+        .store
+        .rubric_version(&s.student, "rub-inesistente@1")
+        .expect_err("un id che non esiste dà un rifiuto");
+    let non_mia = s
+        .store
+        .rubric_version(&s.student, "rub-1@1")
+        .expect_err("la rubrica che non è tua dà lo stesso rifiuto");
+    let testo = |e: &crate::Error| {
+        e.to_string()
+            .split_whitespace()
+            .filter(|w| !w.starts_with("rubrica:"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    assert_eq!(testo(&inesistente), testo(&non_mia));
 }

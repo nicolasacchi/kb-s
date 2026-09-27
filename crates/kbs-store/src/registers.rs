@@ -15,18 +15,43 @@
 //!
 //! `kbs-core` ha il predicato per gli **argomenti**. Un giudizio e una
 //! dimostrazione non sono un argomento: sono il registro dello studente. Qui la
-//! regola è dichiarata per esteso, e sono tre righe perché sono tre:
+//! regola è dichiarata per esteso, e non è «tre righe» perché **non è una sola
+//! regola**: sono due, e la differenza è quella che il modulo per primo ha
+//! sbagliato.
 //!
-//! * chi è lo **studente** di cui è la riga;
-//! * chi ha **emesso** il giudizio (`grading.graded_by`), che per un pari è il
-//!   modo per rivedere il proprio lavoro senza vedere quello dei compagni;
-//! * chi **insegna** il corso.
+//! * **Tutto il registro** — lo **studente** di cui è la riga, e chi **insegna** il
+//!   corso. Nient'altro.
+//! * **Il proprio giudizio** — chi ha **emesso** un giudizio su un argomento di
+//!   uno studente vede **quel** giudizio, con la contestazione che lo riguarda, e
+//!   nient'altro del registro di quello studente.
 //!
-//! Non c'è il resto della classe. Un pari che ha valutato il compito del
-//! compagno non vede quel giudizio: la difesa procedurale primaria è la
-//! contestazione, e la privacy del valutato non è un dettaglio. Se un domani
-//! servisse il pari in lettura, è una relazione nuova e va dichiarata come
-//! tale, non aggiunta di nascosto a `may_read`.
+//! La seconda è la riga che va scritta con cura, perché «chi ha emesso un
+//! giudizio» si prestava a una lettura molto più larga: *qualunque* giudizio
+//! emesso a quello studente, su qualunque argomento del corso. E su quella
+//! lettura un pari che ha valutato **un** compito leggeva il registro intero,
+//! compresi i voti del docente e degli altri pari, con rubric e contestazioni. La
+//! difesa procedurale primaria resta la contestazione, e la privacy del valutato
+//! non è un dettaglio: rivedere il proprio giudizio è un diritto, leggere quello
+//! dei compagni è un altro diritto che nessuno ha dichiarato. Sono due relazioni
+//! diverse, e qui sono due righe diverse.
+//!
+//! # Le letture che non sono un registro
+//!
+//! Non tutto quello che c'è in questo file è materiale dello studente, e non tutto
+//! ha la stessa regola. Sono dichiarate qui perché un lettore di questo modulo
+//! deve poter sapere che cosa è coperto e che cosa no:
+//!
+//! * [`Store::claims_for`] e [`Store::observations_for`] passano da
+//!   `read_argument`: l'argomento che le contiene decide la visibilità;
+//! * [`Store::exercise`] e [`Store::instances_of`] sono il lato del generatore e
+//!   del verificatore di D8, e **non** sono materiale che lo studente legge: il
+//!   checker e `expected` sono la risposta, e D8 dice che l'integrità è per
+//!   costruzione;
+//! * [`Store::generations_for`] e [`Store::rubric_version`] sono provenienza e
+//!   strumento di valutazione, e sono del docente del corso;
+//! * [`Store::cohort_signals`] è un **aggregato anonimo** oltre soglia (D9), e
+//!   resta senza predicato per una ragola dichiarata: non contiene persone, e il
+//!   dato individuale da cui viene non si legge da lì.
 
 use rusqlite::OptionalExtension;
 
@@ -257,7 +282,32 @@ impl Store {
     ///
     /// È il substrate del replay: senza l'ordine, «riprodurre la generazione» e
     /// «riprodurre la sequenza» non sono la stessa cosa.
-    pub fn observations_in_session(&self, session: &SessionId) -> Result<Vec<Observation>> {
+    ///
+    /// **La domanda ha una persona, e la persona ha una relazione.** Una
+    /// sessione attraversa corsi e studenti: restituisce `student`, `course_id`,
+    /// `cohort`, `evidence` e `judged_by` di tutti. Senza predicato questa firma
+    /// era un canale per leggere il registro delle dimostrazazioni di un istituto
+    /// con un id — `ses_<registro>_<millisecondi>_<lunghezza della nota>` — che si
+    /// enumera da soli. `SessionId` è un newtype trasparente su `String` e arriva
+    /// da un corpo JSON: enumerare gli id non richiede nessun permesso.
+    ///
+    /// Il predicato è **in tutto o in niente**, e la ragione sta nella destinazione
+    /// di questi dati: le righe servono a `kbs_verify::leaf_of` e `kbs_verify::Chain`,
+    /// e una catena costruita su un sottoinsieme di righe non è una catena
+    /// corteggiata: è una cat vera e con un buco, che non attesta niente. Quindi
+    /// chi chiede deve poter leggere **tutte** le righe della sessione, e l'unico
+    /// rapporto che le copre tutte è insegnare ogni corso in cui la sessione ha
+    /// scritto. Chi non lo fa riceve `NotReadable`.
+    ///
+    /// Il limite che resta, dichiarato perché è vero: il rifiuto dice che una
+    /// sessione ha delle righe, e l'id contiene un millisecondio. Non dice chi sono
+    /// gli studenti, di che corso è, o che cosa hanno dimostrato, e non lo
+    /// distingue da una sessione inesistente o vuota — quelle danno `[]`.
+    pub fn observations_in_session(
+        &self,
+        person: &PersonId,
+        session: &SessionId,
+    ) -> Result<Vec<Observation>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, seq, student, course_id, cohort, argument_id, evidence, evidence_payload, \
                     judged_by, at \
@@ -267,6 +317,26 @@ impl Store {
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);
+        }
+        let corsi: Vec<CourseId> = {
+            let mut visti = Vec::new();
+            for riga in &out {
+                if !visti.contains(&riga.course) {
+                    visti.push(riga.course.clone());
+                }
+            }
+            visti
+        };
+        for corso in corsi {
+            if !self
+                .relations_of(person, &corso)?
+                .contains(&Relation::Teaches)
+            {
+                return Err(Error::NotReadable {
+                    person: person.clone(),
+                    id: ArgumentId(format!("sessione:{}", session.0)),
+                });
+            }
         }
         Ok(out)
     }
@@ -287,8 +357,10 @@ impl Store {
         // che sia un modello. Chi ha valutato una dimostrazione non è quindi
         // tracciato come persona in questa riga, e non può avere il diritto di
         // leggerla per questa via. È un limite dichiarato del registro delle
-        // dimostrazioni, non una scelta silenziosa.
-        self.check_register_reader(person, &unit.course, student, &[])?;
+        // dimostrazioni, non una scelta silenziosa, ed è la ragione per cui qui
+        // `SoloMio` non può capitare: lo scope del registro delle dimostrazioni è
+        // «lo studente o chi insegna», e nulla altro.
+        self.register_scope(person, &unit.course, student, None)?;
         let mut stmt = self.conn.prepare(
             "SELECT id, seq, student, course_id, cohort, argument_id, evidence, evidence_payload, \
                     judged_by, at \
@@ -447,6 +519,9 @@ impl Store {
     /// query che possono disaccordarsi sono due fonti di verità. Chi legge un
     /// ricorso deve vedere il giudizio e la contestazione nello stesso atto, o
     /// rischia di rendersi conto che manca la metà.
+    ///
+    /// Chi ha emesso un giudizio vede **il proprio** e nient'altro: le due
+    /// regole sono distinte e il doc del modulo dice perché.
     pub fn gradings_for(
         &self,
         person: &PersonId,
@@ -454,9 +529,8 @@ impl Store {
         argument: &ArgumentId,
     ) -> Result<Vec<Grading>> {
         let unit = self.read_argument(person, argument)?;
-        let emittenti = self.graders(student, &unit.course, Some(argument))?;
-        self.check_register_reader(person, &unit.course, student, &emittenti)?;
-        self.gradings_of(student, &unit.course, Some(argument))
+        let scope = self.register_scope(person, &unit.course, student, Some(argument))?;
+        self.gradings_of(student, &unit.course, Some(argument), &scope)
     }
 
     /// I giudizi di uno studente su un corso, tutti gli argomenti, contestazione
@@ -467,14 +541,47 @@ impl Store {
         student: &PersonId,
         course: &CourseId,
     ) -> Result<Vec<Grading>> {
-        let emittenti = self.graders(student, course, None)?;
-        self.check_register_reader(person, course, student, &emittenti)?;
-        self.gradings_of(student, course, None)
+        let scope = self.register_scope(person, course, student, None)?;
+        self.gradings_of(student, course, None, &scope)
+    }
+
+    /// Quanto del registro di uno studente può leggere `person`.
+    ///
+    /// Tre esiti e sono tutti dichiarati: tutto, il proprio, niente. La
+    /// distinzione fra «tutto» e «il proprio» è la riga che questo modulo aveva
+    /// scritto in modo da coprire due diritti con una relazione sola, e la
+    /// differenza si vede solo da chi ha emesso un giudizio: per lo studente e per
+    /// il docente i due esiti coincidono, ed è per questo che il difetto è
+    /// passato in mezzo a test verdi.
+    fn register_scope(
+        &self,
+        person: &PersonId,
+        course: &CourseId,
+        student: &PersonId,
+        argument: Option<&ArgumentId>,
+    ) -> Result<RegisterScope> {
+        if person == student {
+            return Ok(RegisterScope::Tutto);
+        }
+        if self.relations_of(person, course)?.contains(&Relation::Teaches) {
+            return Ok(RegisterScope::Tutto);
+        }
+        if self
+            .graders(student, course, argument)?
+            .iter()
+            .any(|emittente| emittente == person)
+        {
+            return Ok(RegisterScope::SoloMio(person.clone()));
+        }
+        Err(Error::NotReadable {
+            person: person.clone(),
+            id: ArgumentId(format!("registro:{student}")),
+        })
     }
 
     /// Chi ha emesso almeno un giudizio su questi argomenti di questo studente.
     ///
-    /// Serve a `check_register_reader`, ed è una `SELECT DISTINCT` e non una
+    /// Serve a `register_scope`, ed è una `SELECT DISTINCT` e non una
     /// lettura del registro intero: la regola di visibilità non deve costare un
     /// caricamento di tutto per decidere chi può leggerne una parte.
     fn graders(
@@ -514,32 +621,47 @@ impl Store {
         Ok(out)
     }
 
+    /// Le righe che il chiamante ha diritto di vedere, e non una di più.
+    ///
+    /// Il filtro su `graded_by` è ciò che tiene separati i due diritti: senza di
+    /// esso la `SELECT` restituirebbe il registro intero a chi ne ha diritto per
+    /// una riga sola, ed è esattamente il difetto che questo modulo si portava
+    /// dietro mentre un test verde diceva il contrario.
     fn gradings_of(
         &self,
         student: &PersonId,
         course: &CourseId,
         argument: Option<&ArgumentId>,
+        scope: &RegisterScope,
     ) -> Result<Vec<Grading>> {
-        let (sql, argument_param): (&str, Option<String>) = match argument {
-            Some(id) => (
-                "SELECT id, seq, student, course_id, argument_id, kind, graded_by, rubric_version, \
-                        grade, at, contested_by, contested_at, contested_reason, contested_outcome \
-                   FROM gradings WHERE student = ?1 AND course_id = ?2 AND argument_id = ?3 \
-                  ORDER BY at, id",
-                Some(id.0.clone()),
-            ),
-            None => (
-                "SELECT id, seq, student, course_id, argument_id, kind, graded_by, rubric_version, \
-                        grade, at, contested_by, contested_at, contested_reason, contested_outcome \
-                   FROM gradings WHERE student = ?1 AND course_id = ?2 ORDER BY at, id",
-                None,
-            ),
+        let solo = match scope {
+            RegisterScope::Tutto => None,
+            RegisterScope::SoloMio(mio) => Some(mio),
         };
-        let mut stmt = self.conn.prepare(sql)?;
-        let rows = match &argument_param {
-            Some(a) => stmt.query_map(rusqlite::params![student.0, course.0, a], map_grading)?,
-            None => stmt.query_map(rusqlite::params![student.0, course.0], map_grading)?,
+        // I parametri si accodano nello stesso ordine in cui i segnaposto
+        // compaiono nella `WHERE`: `?3` è l'argomento quando c'è, `?4` è
+        // l'emittente quando il chiamante ha diritto solo al proprio giudizio.
+        let (per_argomento, per_emittente) = match (argument.is_some(), solo.is_some()) {
+            (true, true) => (" AND argument_id = ?3", " AND graded_by = ?4"),
+            (true, false) => (" AND argument_id = ?3", ""),
+            (false, true) => ("", " AND graded_by = ?3"),
+            (false, false) => ("", ""),
         };
+        let sql = format!(
+            "SELECT id, seq, student, course_id, argument_id, kind, graded_by, rubric_version, \
+                    grade, at, contested_by, contested_at, contested_reason, contested_outcome \
+               FROM gradings WHERE student = ?1 AND course_id = ?2{per_argomento}{per_emittente} \
+              ORDER BY at, id"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&student.0, &course.0];
+        if let Some(id) = argument {
+            params.push(&id.0);
+        }
+        if let Some(mio) = solo {
+            params.push(&mio.0);
+        }
+        let rows = stmt.query_map(params.as_slice(), map_grading)?;
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);
@@ -548,15 +670,37 @@ impl Store {
     }
 
     /// La rubrica, con la sua scala: senza questo un voto è una stringa.
+    ///
+    /// **È del docente del corso, e la decisione è dichiarata.** Una rubrica non è
+    /// un argomento: non ha uno stato, non si ratifica, e non c'è nessun predicato
+    /// di `kbs-core` che la nomini. Applicarle `may_read` sarebbe una finzione.
+    /// Quello che la rende sensibile è un'altra cosa, ed è dichiarata qui: la scala
+    /// è lo **strumento** con cui il docente misura, e chi misura decide che cosa
+    /// misura. È la stessa relazione che rende l'esportazione del docente
+    /// (`Error::NotACourseTeacher`) e non di chiunque: chi non insegna non ha
+    /// competenza sul corso di cui è strumento la valutazione.
+    ///
+    /// **L'id che non esiste e la rubrica che non è tua danno lo stesso
+    /// errore**, come in [`Store::read_argument`], e per la stessa ragione: un
+    /// `Option` qui distinguerebbe le due ipotesi e le trasformerebbe in un
+    /// canale per imparare che cosa c'è in una scuola. Il tipo che torna è
+    /// quindi la rubrica, non `Option<rubrica>`: un valore che può essere assente
+    /// per due ragioni diverse non dovrebbe avere una forma che ne sceglie una.
     pub fn rubric_version(
         &self,
+        person: &PersonId,
         id: &str,
-    ) -> Result<Option<crate::types::RubricVersion>> {
-        let row = self
+    ) -> Result<crate::types::RubricVersion> {
+        let rifiuta = || Error::NotReadable {
+            person: person.clone(),
+            id: ArgumentId(format!("rubrica:{id}")),
+        };
+        let row: Option<(String, String, String, String, i64, String, String)> = self
             .conn
             .query_row(
-                "SELECT v.id, v.rubric_id, v.version, v.scale, v.defined_at, v.note \
-                   FROM rubric_versions v WHERE v.id = ?1",
+                "SELECT v.id, v.rubric_id, v.version, v.scale, v.defined_at, v.note, r.course_id \
+                   FROM rubric_versions v JOIN rubrics r ON r.id = v.rubric_id \
+                  WHERE v.id = ?1",
                 [id],
                 |r| {
                     Ok((
@@ -566,27 +710,34 @@ impl Store {
                         r.get::<_, String>(3)?,
                         r.get::<_, i64>(4)?,
                         r.get::<_, String>(5)?,
+                        r.get::<_, String>(6)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((id, rubric, version, scale, defined_at, note)) = row else {
-            return Ok(None);
+        let Some((id, rubric, version, scale, defined_at, note, corso)) = row else {
+            return Err(rifiuta());
         };
+        if !self
+            .relations_of(person, &CourseId(corso))?
+            .contains(&Relation::Teaches)
+        {
+            return Err(rifiuta());
+        }
         let scale: Vec<crate::types::GradeLevel> =
             serde_json::from_str(&scale).map_err(|e| Error::Corrupt {
                 table: "rubric_versions",
                 field: "scale",
                 reason: e.to_string(),
             })?;
-        Ok(Some(crate::types::RubricVersion {
+        Ok(crate::types::RubricVersion {
             id,
             rubric,
             version,
             scale,
             defined_at: Millis(defined_at),
             note,
-        }))
+        })
     }
 
     /// Scrive una rubrica e/o una sua versione.
@@ -604,32 +755,20 @@ impl Store {
         Ok(())
     }
 
-    /// Chi può leggere il registro di uno studente: lo studente, chi ha emesso
-    /// almeno uno dei giudizi, chi insegna. Dichiarato in tre righe perché sono
-    /// tre, e sono il modulo a dirlo perché qui non c'è una tabella dei ruoli (D5).
-    fn check_register_reader(
-        &self,
-        person: &PersonId,
-        course: &CourseId,
-        student: &PersonId,
-        emittenti: &[PersonId],
-    ) -> Result<()> {
-        if person == student {
-            return Ok(());
-        }
-        if emittenti.contains(person) {
-            return Ok(());
-        }
-        let relations = self.relations_of(person, course)?;
-        if relations.contains(&Relation::Teaches) {
-            return Ok(());
-        }
-        Err(Error::NotReadable {
-            person: person.clone(),
-            id: ArgumentId(format!("registro:{student}")),
-            state: kbs_core::PublicationState::Bozza,
-        })
-    }
+}
+
+/// Quanto del registro di uno studente è leggibile, e da chi.
+///
+/// Le due varianti non sono un dettaglio dell'implementazione: sono le due
+/// righe della regola dichiarata nel doc del modulo, e tenerle in un tipo
+/// rende impossibile la confusione fra le due. Un `bool` — «può leggerlo?» —
+/// avrebbe reso indistinguibili «può leggerlo tutto» da «può rileggere il
+/// giudizio che ha emesso», che è il difetto che questo modulo si portava dietro.
+enum RegisterScope {
+    /// Lo studente di cui è la riga, e chi insegna il corso.
+    Tutto,
+    /// Solo i giudizi emessi da chi chiede, con la contestazione che li riguarda.
+    SoloMio(PersonId),
 }
 
 // ── rubriche, esercizi, generazioni ───────────────────────────────────────────
@@ -670,9 +809,49 @@ impl Store {
         Ok(())
     }
 
-    /// Legge un esercizio, checker incluso.
-    pub fn exercise(&self, id: &str) -> Result<Option<kbs_core::Exercise>> {
-        let row = self
+    /// Legge un esercizio, checker incluso, per chi ne ha diritto.
+    ///
+    /// **Il checker è la risposta.** In tre delle quattro forme di
+    /// `kbs_core::Checker` lo è tutta: `Set { elements }` è l'insieme delle
+    /// risposte corrette, `MultipleChoice { correct_index, options }` è l'indice
+    /// dell'esatto più le opzioni, `Equivalence { normalized }` è la forma
+    /// normale dichiarata. D8 promette che «l'integrità è per costruzione, non per
+    /// sorveglianza», e il meccanismo è che la risposta **non è nel materiale che lo
+    /// studente vede**. Il materiale è separato, la risposta era a un metodo
+    /// pubblico di distanza, e la firma non aveva dove mettere una persona: un
+    /// `@login` non chiude un buco che non ha un soggetto.
+    ///
+    /// Perciò la firma prende **chi chiede** e **di quale corso**, e il predicato è
+    /// in due tempi:
+    ///
+    /// 1. chi chiede **insegna** il corso. Non basta poter vedere l'argomento: uno
+    ///    studente iscritto vede un argomento in corso, e vederlo non deve
+    ///    consegnargli la risposta del suo esercizio. Il lato del generatore e
+    ///    del verificatore è il lato del docente, ed è lì che la promessa di D8 si
+    ///    tiene in piedi;
+    /// 2. l'argomento che porta l'esercizio passa da `read_argument`, cioè dal
+    ///    predicato di `kbs-core`: la bozza del docente resta sua.
+    ///
+    /// Il corso dichiarato dal chiamante viene confrontato con quello della riga:
+    /// un `course_id` che non combacia è la stessa risposta di un esercizio che non
+    /// si può leggere, perché il chiamante che sbaglia il corso non deve poterlo
+    /// sapere dai diversi.
+    ///
+    /// Il rifiuto è `NotReadable` e non `None`: `None` è una risposta vera — «non
+    /// c'è nessun esercizio con questo id» — e qui non lo sarebbe, perché
+    /// l'esercizio c'è e qualcun altro lo può leggere. `Option` sparisce per
+    /// questa firma e con lei la possibilità di confondere le due risposte.
+    pub fn exercise(
+        &self,
+        person: &PersonId,
+        course: &CourseId,
+        id: &str,
+    ) -> Result<kbs_core::Exercise> {
+        let rifiuta = || Error::NotReadable {
+            person: person.clone(),
+            id: ArgumentId(format!("esercizio:{id}")),
+        };
+        let row: Option<(String, String, String, String, String, String, String, String, i64, String)> = self
             .conn
             .query_row(
                 "SELECT id, course_id, argument_id, family, generator_version, prompt, checker, \
@@ -695,12 +874,16 @@ impl Store {
                 },
             )
             .optional()?;
-        let Some((id, course, argument, family, generator, prompt, checker, payload, created_at, created_by)) = row else {
-            return Ok(None);
+        let Some((id, course_row, argument, family, generator, prompt, checker, payload, created_at, created_by)) = row else {
+            return Err(rifiuta());
         };
-        Ok(Some(kbs_core::Exercise {
+        if &course_row != &course.0 {
+            return Err(rifiuta());
+        }
+        self.check_generator_reader(person, course, &ArgumentId(argument.clone()))?;
+        Ok(kbs_core::Exercise {
             id,
-            course: CourseId(course),
+            course: CourseId(course_row),
             argument: ArgumentId(argument),
             family,
             generator_version: generator,
@@ -708,28 +891,79 @@ impl Store {
             checker: codec::checker_from_db(&checker, &payload)?,
             created_at: Millis(created_at),
             created_by: PersonId(created_by),
-        }))
+        })
+    }
+
+    /// Il predicato del lato generatore: insegnare il corso, e vedere l'argomento.
+    ///
+    /// È il metodo che rende vero il doc di [`Store::exercise`] e di
+    /// [`Store::instances_of`], e sta in un posto solo perché due letture con la
+    /// stessa promessa e due implementazioni diverse sono due bug che aspetta
+    /// solo che qualcuno tocchi una delle due.
+    fn check_generator_reader(
+        &self,
+        person: &PersonId,
+        course: &CourseId,
+        argument: &ArgumentId,
+    ) -> Result<()> {
+        self.read_argument(person, argument)?;
+        if !self
+            .relations_of(person, course)?
+            .contains(&Relation::Teaches)
+        {
+            return Err(Error::NotReadable {
+                person: person.clone(),
+                id: argument.clone(),
+            });
+        }
+        Ok(())
     }
 
     /// Salva un'istanza. Il `UNIQUE (exercise, seed)` è la costruzione che rende
     /// la copia inefficace: stessa famiglia, seed diverse, risposte diverse.
+    ///
+    /// **L'id è derivato da `(exercise, seed)`**, e non è un campo di
+    /// `kbs_core::Instance`: un'istanza è una coppia, e la tabella ne ha una
+    /// `PRIMARY KEY` propria che il tipo non porta. Il `ON CONFLICT (exercise,
+    /// seed) DO NOTHING` resta la semantica dichiarata — la stessa istanza non si
+    /// riscrive — e l'id che ne deriva è la stessa cosa, quindi i due vincoli non
+    /// possono contraddirsi.
+    ///
+    /// Qui c'era un `INSERT` a sei segnaposto con cinque parametri: la colonna
+    /// `id` non era mai legata, e **nessuna istanza è mai entrata** in questo
+    /// database. È il difetto che un test assente lascia in piedi più a lungo di
+    /// tutti gli altri, perché la firma sembrava già scritta.
     pub fn put_instance(&mut self, i: &kbs_core::Instance) -> Result<()> {
         let params = serde_json::to_string(&i.params).map_err(|e| Error::InvalidField {
             field: "params",
             reason: e.to_string(),
         })?;
+        let id = format!("{}#{}", i.exercise, i.seed);
         self.conn.execute(
             "INSERT INTO instances (id, exercise, seed, rendered_prompt, expected, params) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
              ON CONFLICT (exercise, seed) DO NOTHING",
-            rusqlite::params![i.exercise, i.seed, i.rendered_prompt, i.expected, params],
+            rusqlite::params![id, i.exercise, i.seed, i.rendered_prompt, i.expected, params],
         )?;
         Ok(())
     }
 
     /// Le istanze di un esercizio, in ordine di seed: ordinarle è ciò che rende
     /// confrontabili due istanze della stessa famiglia.
-    pub fn instances_of(&self, exercise: &str) -> Result<Vec<kbs_core::Instance>> {
+    ///
+    /// **`Instance::expected` è la risposta**, ed è per questo che la firma è
+    /// quella di [`Store::exercise`] e non una firma più permissiva: lo stesso
+    /// predicato, lo stesso soggetto, la stessa ragione. Il predicato sta dentro
+    /// `exercise`, che questa funzione chiama per prima: è l'unico modo che
+    /// l'esercizio inesistente e l'esercizio non leggibile diano la stessa
+    /// risposta, ed è la stessa ragione per cui `exercise` non torna `Option`.
+    pub fn instances_of(
+        &self,
+        person: &PersonId,
+        course: &CourseId,
+        exercise: &str,
+    ) -> Result<Vec<kbs_core::Instance>> {
+        self.exercise(person, course, exercise)?;
         let mut stmt = self.conn.prepare(
             "SELECT exercise, seed, rendered_prompt, expected, params \
                FROM instances WHERE exercise = ?1 ORDER BY seed",
@@ -778,7 +1012,26 @@ impl Store {
 
     /// Gli eventi di generazione di un argomento, in ordine di tempo: è la
     /// risposta a «come è nato questo materiale».
-    pub fn generations_for(&self, argument: &ArgumentId) -> Result<Vec<crate::types::GenerationEvent>> {
+    ///
+    /// **Questa era una delle letture senza predicato, e la decisione è di
+    /// chiuderla.** Un `model lock` è `model_id`, `prompt_hash`, `corpus_hash`,
+    /// `generator_version`, chi l'ha chiesto e quando: per un argomento di un
+    /// corso in cui non si insegna, e in bozza come in corso. Un autore che
+    /// leggesse la provenienza altrui imparerebbe quale modello genera il
+    /// materiale della scuola concorrente, con quale prompt e su quale corpus — e
+    /// il `corpus_hash` è l'hash di quello che la scuola non pubblica. Non è un
+    /// documento segreto, ma è materiale di un altro perimetro di condivisione, e
+    /// `CourseId` è il perimetro.
+    ///
+    /// Quindi la firma prende la persona e la provenienza si legge **solo** di un
+    /// argomento che quella persona può leggere: `read_argument` è il predicato, e
+    /// non ne esiste un secondo più permissivo.
+    pub fn generations_for(
+        &self,
+        person: &PersonId,
+        argument: &ArgumentId,
+    ) -> Result<Vec<crate::types::GenerationEvent>> {
+        self.read_argument(person, argument)?;
         let mut stmt = self.conn.prepare(
             "SELECT l.model_id, l.prompt_hash, l.corpus_hash, l.generator_version, l.at, \
                     g.requester, g.at \
@@ -820,7 +1073,35 @@ impl Store {
 // ── la coorte invisibile (D9) ───────────────────────────────────────────────
 
 impl Store {
-    /// Registra un segnale di coorte.
+    /// Registra un segnale di coorte, dopo averlo confrontato con le righe da cui
+    /// viene.
+    ///
+    /// **`failing` è un numero di persone, e il numero lo conta il registro.**
+    ///
+    /// D9 chiede un conteggio di **persone** che sbagliano un argomento a livello
+    /// di classe. Il numero arrivava dal chiamante e non era confrontato con
+    /// nessuna riga: la soglia era chiusa e il `CHECK` del database pure, ma la
+    /// `UNIQUE` è su `(session_id, seq)`, quindi uno studente con cinque tentativi
+    /// su un argomento era conforme, e il segnale che annunciava alla classe «cinque
+    /// studenti sbagliano questo argomento» era il lavoro di uno. Nessuna delle due
+    /// barriere poteva accorgersene, perché tutte e due contavano un intero
+    /// ricevuto.
+    ///
+    /// Qui il numero si riconta dalle osservazioni e il valore dichiarato si
+    /// confronta: se non tornano, l'errore è [`Error::CohortCountMismatch`] e dice
+    /// entrambi i numeri. Non si sceglie silenziosamente quale dei due è vero,
+    /// perché «silenzio» su un campo compilato è il modo più veloce per insegnare
+    /// al chiamante che quel campo non esiste — la regola che questo crate segue già
+    /// per la ratifica in `upsert_argument`.
+    ///
+    /// **Cosa conta come «in errore»**, dichiarato perché è una decisione e non un
+    /// dettaglio: una dimostrazione il cui verificatore deterministice ha detto
+    /// `correct: false`. È l'unica cosa che il registro sa contare da sé senza
+    /// giudicare: un voto di pari o un'interrogazione orale non dicono «sbagliato»,
+    /// e dichiarare che lo dicono sarebbe inventare un verdetto. `total` è il
+    /// numero di persone che hanno una riga su quell'argomento, e la relazione
+    /// `failing <= total` è garantita per costruzione invece che dal `CHECK` che
+    /// prima la presidiava.
     ///
     /// **Sotto soglia l'errore è `CohortBelowThreshold` e la riga non entra.**
     /// Non è una cancellazione: le osservazioni individuali da cui il segnale
@@ -839,6 +1120,15 @@ impl Store {
                 min: COHORT_MIN_K,
             }));
         }
+        let (failing, total) = self.count_failing(&signal.course, &signal.cohort, &signal.argument)?;
+        if (signal.failing, signal.total) != (failing, total) {
+            return Err(Error::CohortCountMismatch {
+                declared_failing: signal.failing,
+                declared_total: signal.total,
+                counted_failing: failing,
+                counted_total: total,
+            });
+        }
         self.conn.execute(
             "INSERT INTO cohort_signals (course_id, cohort, argument_id, failing, total, at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
@@ -848,12 +1138,38 @@ impl Store {
                 signal.course.0,
                 signal.cohort.0,
                 signal.argument.0,
-                signal.failing as i64,
-                signal.total as i64,
+                failing as i64,
+                total as i64,
                 signal.at.0,
             ],
         )?;
         Ok(())
+    }
+
+    /// Quante **persone** sbagliano, e quante hanno prodotto qualcosa, su quell'
+    /// argomento in quel corso e in quella classe.
+    ///
+    /// `COUNT(DISTINCT student)`, non `COUNT(*)`: è la differenza fra un dato
+    /// sulle persone e un dato sui tentativi, ed è tutta la differenza che D9
+    /// chiede. La definizione di «in errore» è nel doc di
+    /// [`Store::record_cohort_signal`] e sta qui dentro per non averne due.
+    fn count_failing(
+        &self,
+        course: &CourseId,
+        cohort: &CohortId,
+        argument: &ArgumentId,
+    ) -> Result<(usize, usize)> {
+        let (failing, total): (i64, i64) = self.conn.query_row(
+            "SELECT COUNT(DISTINCT CASE WHEN evidence = 'checked' \
+                       AND json_extract(evidence_payload, '$.correct') = 0 \
+                      THEN student END), \
+                    COUNT(DISTINCT student) \
+               FROM observations \
+              WHERE course_id = ?1 AND cohort = ?2 AND argument_id = ?3",
+            rusqlite::params![course.0, cohort.0, argument.0],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok((failing as usize, total as usize))
     }
 
     /// I segnali di coorte di un argomento, **solo quelli pubblicabili**.

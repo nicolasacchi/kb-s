@@ -251,8 +251,20 @@ impl Store {
     /// Un argomento derivato non ha un autore proprio: `kbs_core::Origin::Derived`
     /// non ha il campo `by`, e riempirlo significherebbe inventare un autore.
     /// Quindi l'attribuzione risale lungo la catena delle derivazioni, e chi ha
-    /// scritto la sorgente è autore di ciò che da essa deriva. La ricorsione usa
-    /// `UNION`, non `UNION ALL`: i duplicati sopprimono il ciclo, quindi un grafo
+    /// scritto la sorgente è autore di ciò che da essa deriva. Senza quella
+    /// risalita un argomento derivato non ha autore di nessuno, e il predicato lo
+    /// rende invisibile **anche a chi lo ha scritto**: un autore che non può
+    /// rivedere ciò che ha derivato è un difetto, non una severità.
+    ///
+    /// La query ha due parti e servono entrambe. La prima è l'attribuzione
+    /// diretta, quella che c'è in `origin_by`. La seconda sale la catena: il
+    /// seme è ogni argomento derivato del corso, e ad ogni passo l'attribuzione
+    /// viaggia con la riga finché non incontra una fonte che ha un autore, a quel
+    /// punto il cammino si ferma e la riga porta l'attribuzione di quella fonte.
+    /// Il `CHECK` di `V2` vieta a un derivato di avere `origin_by`, quindi la
+    /// seconda parte non è una ridondanza: è l'unica che riguarda i derivati.
+    ///
+    /// `UNION` e non `UNION ALL`: i duplicati sopprimono il ciclo, quindi un grafo
     /// di derivazioni ciclico non fa girare la query all'infinito.
     fn attributed_authors(
         &self,
@@ -260,18 +272,28 @@ impl Store {
         only: Option<&ArgumentId>,
     ) -> Result<HashMap<String, HashSet<String>>> {
         let mut stmt = self.conn.prepare(
-            "WITH RECURSIVE anc(root, node) AS ( \
-                 SELECT a.id, a.origin_from FROM arguments a \
+            "WITH RECURSIVE walk(discendente, node, autore) AS ( \
+                 SELECT a.id, a.id, NULL FROM arguments a \
                   WHERE a.course_id = ?1 AND a.origin_kind = 'derived' \
-                    AND (?2 IS NULL OR a.id = ?2) \
                  UNION \
-                 SELECT anc.root, p.origin_from FROM anc \
-                   JOIN arguments p ON p.id = anc.node \
+                 SELECT w.discendente, w.node, p.origin_by \
+                   FROM walk w \
+                   JOIN arguments c ON c.id = w.node \
+                   JOIN arguments p ON p.id = c.origin_from \
+                  WHERE p.origin_by IS NOT NULL \
+                 UNION \
+                 SELECT w.discendente, p.id, w.autore \
+                   FROM walk w \
+                   JOIN arguments c ON c.id = w.node \
+                   JOIN arguments p ON p.id = c.origin_from \
                   WHERE p.origin_kind = 'derived' \
              ) \
              SELECT DISTINCT a.id, a.origin_by FROM arguments a \
               WHERE a.course_id = ?1 AND a.origin_by IS NOT NULL \
-                AND (?2 IS NULL OR a.id = ?2 OR a.id IN (SELECT node FROM anc))",
+                AND (?2 IS NULL OR a.id = ?2) \
+             UNION \
+             SELECT DISTINCT w.discendente, w.autore FROM walk w \
+              WHERE w.autore IS NOT NULL AND (?2 IS NULL OR w.discendente = ?2)",
         )?;
         let rows = stmt.query_map(
             rusqlite::params![course.0, only.map(|i| i.0.as_str())],
@@ -284,8 +306,6 @@ impl Store {
         }
         Ok(map)
     }
-
-    // ── gli argomenti ──────────────────────────────────────────────────────
 
     /// Scrive un argomento, creandolo o aggiornandolo.
     ///
@@ -309,6 +329,15 @@ impl Store {
     /// errore detto chiaramente, non un silenzio. Un valore di ratifica
     /// **identico** a quello memorizzato passa, perché altrimenti un
     /// `Argument` appena letto dal database non potrebbe più essere riscritto.
+    ///
+    /// **Il corso non si sposta, e non è una delicatezza dell'aggiornamento.**
+    /// Su una riga che esiste già, un `course_id` diverso da quello memorizzato è
+    /// [`Error::CourseReparent`]: l'id di un argomento è derivato dal percorso, il
+    /// percorso contiene il corso, e `CourseId` è il perimetro di condivisione.
+    /// Spostare la riga lascerebbe un argomento il cui nome dice una cosa e il cui
+    /// percorso dice un'altra, e porterebbe dentro un corso la ratifica di chi
+    /// insegnava l'altro. La strada per spostare del materiale è un argomento
+    /// nuovo, e la `ON CONFLICT` qui sotto non tocca `course_id` neppure.
     pub fn upsert_argument(&mut self, a: &Argument) -> Result<()> {
         if a.title.trim().is_empty() {
             return Err(Error::InvalidField {
@@ -357,15 +386,43 @@ impl Store {
                 return Err(Error::RatificationThroughUpsert { id: a.id.clone() });
             }
         }
-        let current: Option<PublicationState> = tx
-            .query_row("SELECT state FROM arguments WHERE id = ?1", [&a.id.0], |r| {
-                r.get::<_, String>(0)
-            })
-            .optional()?
-            .map(|s| codec::state_from_db(&s))
-            .transpose()?;
+        let corrente: Option<(PublicationState, String)> =
+            match tx
+                .query_row(
+                    "SELECT state, course_id FROM arguments WHERE id = ?1",
+                    [&a.id.0],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                )
+                .optional()?
+            {
+                None => None,
+                Some((stato, corso)) => Some((codec::state_from_db(&stato)?, corso)),
+            };
+        // **Il corso non si sposta.** Non è una scelta conservativa: è la
+        // conseguenza di due cose che sono già vere. `ArgumentId` è derivato dal
+        // percorso e il percorso contiene il corso, quindi un argomento riparentato
+        // avrebbe un id che dice `corsi/<corso vecchio>/…` e una riga che dice
+        // `course_…` dell'altro: un argomento che mente sul proprio nome, e
+        // `rel_path` — la stessa cosa detta due volte, in due modi diversi. E
+        // `CourseId` è «il perimetro di condivisione»: spostando la riga si
+        // sposta anche la ratifica, che è la responsabilità di chi insegnava il
+        // corso di prima, dentro un corso in cui non insegna nessuno.
+        //
+        // La correzione non è una transizione e non è un'`UPDATE` più permissiva:
+        // è un argomento nuovo, col suo percorso, la sua ratifica e il suo
+        // `content_hash`. È l'unica risposta in cui la ratifica resta un fatto
+        // su un testo e non un timbro che ha cambiato mano.
+        if let Some((_, corso)) = &corrente {
+            if corso != &a.course.0 {
+                return Err(Error::CourseReparent {
+                    id: a.id.clone(),
+                    from: CourseId(corso.clone()),
+                    to: a.course.clone(),
+                });
+            }
+        }
+        let current = corrente.map(|(stato, _)| stato);
         let state = writable_state(&a.id, current, a.state)?;
-
         tx.execute(
             "INSERT INTO arguments ( \
                  id, course_id, title, summary, state, rel_path, content_hash, \
@@ -373,8 +430,8 @@ impl Store {
                  created_at, updated_at, \
                  ratified_by, ratified_at, ratified_contract_hash, ratified_note) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18) \
-             ON CONFLICT (id) DO UPDATE SET \
-                 course_id = ?2, title = ?3, summary = ?4, state = ?5, rel_path = ?6, \
+            ON CONFLICT (id) DO UPDATE SET \
+                 title = ?3, summary = ?4, state = ?5, rel_path = ?6, \
                  content_hash = ?7, \
                  origin_kind = ?8, origin_by = ?9, origin_at = ?10, origin_lock = ?11, \
                  origin_from = ?12, updated_at = ?14",
@@ -461,21 +518,21 @@ impl Store {
     /// altrimenti «non esiste» e «non lo vedi» sarebbero due canali per imparare
     /// che cosa c'è nel corso, e la forma dell'id (`arg_<hash del percorso>`) è
     /// enumerabile da chiunque abbia il corpus.
+    ///
+    /// «la stessa risposta» vuol dire **gli stessi byte**: l'errore non porta lo
+    /// stato della riga, perché un errore che dice in che stato è la cosa che non
+    /// ti fa vedere è un oracolo. Vedi il doc di [`Error::NotReadable`].
     pub fn read_argument(&self, person: &PersonId, id: &ArgumentId) -> Result<Argument> {
+        let not_readable = || Error::NotReadable {
+            person: person.clone(),
+            id: id.clone(),
+        };
         let Some(argument) = self.argument_unrestricted(id)? else {
-            return Err(Error::NotReadable {
-                person: person.clone(),
-                id: id.clone(),
-                state: PublicationState::Bozza,
-            });
+            return Err(not_readable());
         };
         let visibility = self.visibility(person, &argument.course)?;
         if !visibility.may_see(&argument) {
-            return Err(Error::NotReadable {
-                person: person.clone(),
-                id: id.clone(),
-                state: argument.state,
-            });
+            return Err(not_readable());
         }
         Ok(argument)
     }

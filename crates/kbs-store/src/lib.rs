@@ -32,24 +32,51 @@
 //! # La visibilità è decisa in un posto solo
 //!
 //! `kbs_core::may_read` è la funzione, e questo è il posto in cui la si
-//! applica. **Ogni lettura di un argomento per una persona passa di lì**, e sono
-//! cinque le strade che lo fanno: [`Store::read_argument`],
-//! [`Store::visible_arguments`], [`Store::claims_for`],
-//! [`Store::observations_for`], [`Store::gradings_for`] e [`Store::search`].
-//! Le query non filtrate sono `pub(crate)`, e l'unico modo pubblico di arrivarci
-//! è [`Store::conn`], che è dichiarato come la porta di servizio che è.
+//! applica. **Ogni lettura di un argomento per una persona passa di lì.** Le
+//! query non filtrate sono `pub(crate)`, e l'unico modo pubblico di arrivarci è
+//! [`Store::conn`], che è dichiarato come la porta di servizio che è.
 //!
-//! Le altre tre cose hanno regole diverse, e sono dichiarate per quello che
-//! sono invece di essere accodate a `may_read` con la scusa che «è la stessa
-//! cosa»:
+//! ## L'inventario, che è chiuso
 //!
-//! * **i registri di uno studente** ([`Store::student_gradings`]) sono letti da
-//!   chi è lo studente, da chi ha emesso un giudizio e da chi insegna: la
-//!   regola è in `registers`, dichiarata in tre righe;
-//! * **l'esportazione** ([`Store::export_fixed_columns`]) è del docente del corso;
-//! * **rubriche, generazioni e manutenzione dell'indice** non hanno una persona
-//!   e non hanno un predicato: sono letture di manutenzione, e fingere il
-//!   contrario sarebbe unRBAC travestito da sicurezza.
+//! Un inventario dichiarato e non controllato è un inventario che invecchia, e
+//! quindi **questo elenco è chiuso e c'è un test che lo controlla**: ogni `pub fn`
+//! che consegna contenuto di un corso senza prendere una persona deve comparire
+//! qui, per nome. `tests::inventory` legge le firme dal sorgente e fallisce
+//! quando una strada nuova non è dichiarata da nessuna parte.
+//!
+//! * **passano da `may_read`, per una persona** — [`Store::read_argument`],
+//!   [`Store::visible_arguments`], [`Store::search`], [`Store::claims_for`],
+//!   [`Store::observations_for`], [`Store::gradings_for`],
+//!   [`Store::student_gradings`], [`Store::observations_in_session`],
+//!   [`Store::exercise`], [`Store::instances_of`], [`Store::generations_for`] e
+//!   [`Store::rubric_version`];
+//! * **non hanno una persona, e sono eccezioni dichiarate** —
+//!   [`Store::export_fixed_columns`] è del docente del corso, e controlla
+//!   l'esportazione a colonne fisse di D12; [`Store::cohort_signals`] è
+//!   l'**aggregato anonimo** oltre soglia di D9, e non contiene persone: il dato
+//!   individuale da cui viene si legge solo da [`Store::observations_for`], che
+//!   è soggetta al predicato;
+//! * **non sono letture** — le scritture ([`Store::append_observation`],
+//!   [`Store::append_grading`], [`Store::append_claim`], `upsert_*`, `put_*`,
+//!   `record_*`, `open_session`, `close_session`, `index_chunk`, …) restano senza
+//!   predicato **per dichiarazione**: questo crate non autentica e non autorizza
+//!   in scrittura, e mettere un `&PersonId` in una firma di scrittura che
+//!   non usa sarebbe una coperta. Le letture sono il modello di sicurezza; le
+//!   scritture sono una porta di servizio, e va detto.
+//!
+//! Due eccezioni hanno una regola che **non** è `may_read` e sono dichiarate
+//! perché sono state proprio quelle che il modulo non ripeteva:
+//!
+//! * **il lato generatore di D8** ([`Store::exercise`], [`Store::instances_of`])
+//!   chiede **`teaches` sul corso**: il checker e `Instance::expected` sono la
+//!   risposta, e D8 dice che l'integrità è per costruzione perché la risposta non
+//!   è nel materiale che lo studente vede. «Vedere l'argomento» non basta: uno
+//!   studente iscritto vede un argomento in corso.
+//! * **il registro dello studente** ([`Store::gradings_for`],
+//!   [`Store::student_gradings`]) ha due righe e non una: lo studente e chi insegna
+//!   leggono tutto; chi ha emesso un giudizio legge **il proprio**. Vedi il doc
+//!   di `registers`, che spiega perché la differenza è una relazione e non un
+//!   dettaglio di implementazione.
 //!
 //! I due limiti di quel modello, dichiarati perché sono i prossimi a venire
 //! letti: i **ruoli non esistono** (D5 li vieta come oggetto memorizzato: sono un
