@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Scena 3D: facce, spigoli e vertici di un parallelepipedo</title>
+<meta name="kb-argument" content="mappe/04-scena-3d-parallelepipedo.html">
+<meta name="kb-course" content="informatica-terza">
+<meta name="kb-family" content="mappe">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="human">
+</head>
+<body>
+<main>
+<h1 id="titolo">Scena 3D: facce, spigoli e vertici di un parallelepipedo</h1>
+<p class="riassunto">La scena che si manipola invece di guardare, e le cui relazioni sono tutte dichiarate.</p>
+<ul class="prerequisiti">
+<li data-prereq="laboratori/03-dataset-cocola.html">laboratori/03-dataset-cocola.html</li>
+</ul>
+<p>La scena mostra un parallelepipedo con tre classi di oggetti: le facce, gli spigoli e i vertici. Ogni oggetto dichiarato corrisponde a un&#39;affermazione con il proprio testo di sostegno.</p>
+<p>Lo studente non guarda la scena: la gira e corregge le relazioni. Il guadagno che si registra è il tempo di manipolazione e il numero di relazioni corrette, non il tempo sul compito.</p>
+<p class="claim"><span id="span-37-1" data-claim="cl_37_1" data-stato="supported">La scena mostra un parallelepipedo con tre classi di oggetti: le facce, gli spigoli e i vertici. Ogni oggetto dichiarato corrisponde a un&#39;affermazione con il proprio testo di sostegno.</span></p>
+<p class="claim-nota">Affermazione <code>cl_37_1</code>: Un parallelepipedo ha sei facce.</p>
+<p class="claim"><span id="span-37-2" data-claim="cl_37_2" data-stato="supported">Lo studente non guarda la scena: la gira e corregge le relazioni. Il guadagno che si registra è il tempo di manipolazione e il numero di relazioni corrette, non il tempo sul compito.</span></p>
+<p class="claim-nota">Affermazione <code>cl_37_2</code>: Un parallelepipedo ha dodici spigoli.</p>
+<p class="claim"><span id="span-37-3" data-claim="cl_37_3" data-stato="supported">Un parallelepipedo ha sei facce, dodici spigoli e otto vertici: nessuno dei tre numeri si legge guardando la scena da un angolo, e tutti e tre si ottengono contando.</span></p>
+<p class="claim-nota">Affermazione <code>cl_37_3</code>: Un parallelepipedo ha otto vertici.</p>
+<p class="claim"><span id="span-37-4" data-claim="cl_37_4" data-stato="supported">La scena mostra un parallelepipedo con tre classi di oggetti: le facce, gli spigoli e i vertici. Ogni oggetto dichiarato corrisponde a un&#39;affermazione con il proprio testo di sostegno.</span></p>
+<p class="claim-nota">Affermazione <code>cl_37_4</code>: Ogni faccia è delimitata da spigoli.</p>
+<p class="claim"><span id="span-37-5" data-claim="cl_37_5" data-stato="supported">Lo studente non guarda la scena: la gira e corregge le relazioni. Il guadagno che si registra è il tempo di manipolazione e il numero di relazioni corrette, non il tempo sul compito.</span></p>
+<p class="claim-nota">Affermazione <code>cl_37_5</code>: Ogni spigolo termina in due vertici.</p>
+<p class="claim"><span id="span-37-6" data-claim="cl_37_6" data-stato="supported">Un parallelepipedo ha sei facce, dodici spigoli e otto vertici: nessuno dei tre numeri si legge guardando la scena da un angolo, e tutti e tre si ottengono contando.</span></p>
+<p class="claim-nota">Affermazione <code>cl_37_6</code>: Ogni vertice appartiene a più di una faccia.</p>
+<section class="mappa">
+<h2 id="mappa">La mappa</h2>
+<p data-nodo="n-faccia" data-claim="cl_37_1">1 faccia</p>
+<p data-nodo="n-spigolo" data-claim="cl_37_2">2 spigolo</p>
+<p data-nodo="n-vertice" data-claim="cl_37_3">3 vertice</p>
+<p data-arco="a-confine" data-claim="cl_37_4">n-faccia — delimitata da n-spigolo (correggibile)</p>
+<p data-arco="a-terminazione" data-claim="cl_37_5">n-spigolo — termina in n-vertice (correggibile)</p>
+<p data-arco="a-appartenenza" data-claim="cl_37_6">n-vertice — appartiene a n-faccia</p>
+</section>
+<div id="scena" data-scene="scene/parallelepipedo.json"></div>
+<script type="module" src="/three/three.module.js"></script>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: nessuna risposta è visibile nella scena. Il numero di facce, spigoli e vertici è ciò che devi ottenere manipolando, e la scena non te lo mostra. Il rendering è un effetto: puoi cambiare camera e luce, e i dati non cambiano.
+
+## PREREQUISITI
+03 dataset cocola
+
+## OBIETTIVI
+Contare facce, spigoli e vertici manipolando la scena, e correggere almeno una relazione dichiarata.
+
+## SCALA
+Livello 4: corregge una relazione e sa dire quale fatto la smentirebbe. Livello 3: conta e corregge. Livello 2: conta girando la scena. Livello 1: guarda e indovina.
+
+## EQUIVOCI
+Non confondere il numero di oggetti visibili con il numero di oggetti: la scena mostra una faccia per volta, e il totale si ottiene contando le ripetizioni.
+
+## ESEMPIO-LAVORATO
+Un parallelepipedo ha sei facce, dodici spigoli e otto vertici: nessuno dei tre numeri si legge guardando la scena da un angolo, e tutti e tre si ottengono contando.
+
+## VERIFICA
+Manipola la scena fino a ricavare i tre numeri, poi correggi la relazione che ritieni sbagliata e indica il fatto che ti smentisce.
+
+## LIMITE
+Vale per la scena e per la versione dichiarata del runtime: con un renderer diverso la resa cambia e i dati restano, e il limite è proprio questo.
+</template>
+</body>
+</html>

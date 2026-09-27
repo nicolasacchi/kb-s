@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Somma di frazioni con denominatore diverso</title>
+<meta name="kb-argument" content="esercizi/01-somma-di-frazioni.html">
+<meta name="kb-course" content="matematica-seconda">
+<meta name="kb-family" content="esercizi">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="generated">
+</head>
+<body>
+<main>
+<h1 id="titolo">Somma di frazioni con denominatore diverso</h1>
+<p class="riassunto">Esercizio parametrizzato: due istanze diverse, lo stesso ragionamento, risposte diverse.</p>
+<ul class="prerequisiti">
+<li data-prereq="letture/03-frazione-irriducibile.html">letture/03-frazione-irriducibile.html</li>
+</ul>
+<p>L&#39;esercizio è parametrizzato: il seed sceglie i tre interi dell&#39;istanza, e la risposta cambia con il seed. Il ragionamento non cambia mai.</p>
+<p>È la ragione per cui copiare il compito del compagno non aiuta: la risposta è diversa e il procedimento è lo stesso, quindi si può copiare il procedimento e non la risposta.</p>
+<p class="claim"><span id="span-05-1" data-claim="cl_05_1" data-stato="supported">È la ragione per cui copiare il compito del compagno non aiuta: la risposta è diversa e il procedimento è lo stesso, quindi si può copiare il procedimento e non la risposta.</span></p>
+<p class="claim-nota">Affermazione <code>cl_05_1</code>: Due istanze dello stesso esercizio hanno risposte diverse e lo stesso ragionamento.</p>
+<section class="esercizi">
+<div class="esercizio" data-esercizio="ex_05_1" data-famiglia="somma-frazioni" data-checker="equivalence">
+<p>Calcola 1/a + 1/b e riduci il risultato; il terzo intero c è il fattore comune da estrarre prima.</p>
+<p class="istanza" data-seed="s1">istanza 2, 3, 1</p>
+<p class="istanza" data-seed="s2">istanza 3, 4, 1</p>
+</div>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: due frazioni si sommano solo dopo averle messe a denominatore comune. Sommare i denominatori non è mai corretto, e la verifica del risultato è una divisione.
+
+## PREREQUISITI
+03 frazione irriducibile
+
+## OBIETTIVI
+Calcolare la somma di due frazioni e ridurre il risultato.
+
+## SCALA
+Livello 4: riduce e verifica moltiplicando. Livello 3: calcola correttamente. Livello 2: mette a denominatore comune. Livello 1: moltiplica numeratori e denominatori.
+
+## EQUIVOCI
+Non confondere la somma di due frazioni con la somma dei denominatori, e non dimenticare di ridurre il risultato finale.
+
+## ESEMPIO-LAVORATO
+1/2 + 1/3: denominatore comune 6, quindi 3/6 + 2/6 = 5/6. La somma dei denominatori darebbe 5, che non è un numero tra 0 e 1.
+
+## VERIFICA
+Svolgi le due istanze dell'esercizio e verifica ogni risultato moltiplicandolo per il denominatore comune.
+
+## LIMITE
+Vale per due addendi. Con più di due, si somma due alla volta e si riduce dopo ogni passaggio.
+</template>
+</body>
+</html>

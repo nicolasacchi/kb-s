@@ -1,0 +1,66 @@
+{
+  "archi": [
+    {
+      "a": "n-spigolo",
+      "claim": "cl_37_4",
+      "correggibile": true,
+      "da": "n-faccia",
+      "id": "a-confine",
+      "relazione": "delimitata da"
+    },
+    {
+      "a": "n-vertice",
+      "claim": "cl_37_5",
+      "correggibile": true,
+      "da": "n-spigolo",
+      "id": "a-terminazione",
+      "relazione": "termina in"
+    },
+    {
+      "a": "n-faccia",
+      "claim": "cl_37_6",
+      "correggibile": false,
+      "da": "n-vertice",
+      "id": "a-appartenenza",
+      "relazione": "appartiene a"
+    }
+  ],
+  "argomento": "mappe/04-scena-3d-parallelepipedo.html",
+  "nodi": [
+    {
+      "claim": "cl_37_1",
+      "correggibile": false,
+      "etichetta": "faccia",
+      "id": "n-faccia",
+      "posizione": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "claim": "cl_37_2",
+      "correggibile": false,
+      "etichetta": "spigolo",
+      "id": "n-spigolo",
+      "posizione": [
+        1.0,
+        0.5,
+        0.0
+      ]
+    },
+    {
+      "claim": "cl_37_3",
+      "correggibile": false,
+      "etichetta": "vertice",
+      "id": "n-vertice",
+      "posizione": [
+        0.5,
+        0.0,
+        0.5
+      ]
+    }
+  ],
+  "runtime": "/three/three.module.js",
+  "titolo": "Parallelepipedo: facce, spigoli, vertici"
+}

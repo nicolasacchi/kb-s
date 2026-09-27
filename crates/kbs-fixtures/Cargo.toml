@@ -6,6 +6,16 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "TODO"
+description = "Il banco di prova: corpus deterministico di 40 item e runner che asserisce la pipeline end to end"
 
 [dependencies]
+kbs-core.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+
+[[bin]]
+name = "kbs-bench"
+path = "src/main.rs"

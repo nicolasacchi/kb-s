@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Notebook: ridurre e rappresentare</title>
+<meta name="kb-argument" content="laboratori/01-notebook-frazioni.html">
+<meta name="kb-course" content="matematica-seconda">
+<meta name="kb-family" content="laboratori">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="human">
+</head>
+<body>
+<main>
+<h1 id="titolo">Notebook: ridurre e rappresentare</h1>
+<p class="riassunto">Il laboratorio che produce l&#39;errore: una claim che il foglio non sostiene.</p>
+<ul class="prerequisiti">
+<li data-prereq="esercizi/01-somma-di-frazioni.html">esercizi/01-somma-di-frazioni.html</li>
+</ul>
+<p>Il foglio calcola la riduzione di trenta frazioni e rappresenta ogni risultato come punto sul piano. La riduzione è corretta; la conclusione che il foglio ne ricava non lo è.</p>
+<p>È il caso più interessante del banco: l&#39;affermazione c&#39;è, ha un punto d&#39;appoggio nel documento, e il punto d&#39;appoggio non la regge. L&#39;affermazione resta nel registro con la sua traccia, e non esce dall&#39;output.</p>
+<p class="claim"><span id="span-11-1" data-claim="cl_11_1" data-stato="contradicted">Il foglio calcola la riduzione di trenta frazioni e rappresenta ogni risultato come punto sul piano. La riduzione è corretta; la conclusione che il foglio ne ricava non lo è.</span></p>
+<p class="claim-nota">Affermazione <code>cl_11_1</code>: Ridurre una frazione diminuisce il denominatore o lo lascia invariato.</p>
+<section class="foglio">
+<h2 id="foglio">Foglio di calcolo</h2>
+<table><tbody>
+<tr><td>riga 1</td><td>Il foglio calcola la riduzione di trenta frazioni e rappresenta ogni risultato come punto sul piano. La riduzione è corretta; la conclusione che il foglio ne ricava non lo è.</td></tr>
+<tr><td>riga 2</td><td>È il caso più interessante del banco: l&#39;affermazione c&#39;è, ha un punto d&#39;appoggio nel documento, e il punto d&#39;appoggio non la regge. L&#39;affermazione resta nel registro con la sua traccia, e non esce dall&#39;output.</td></tr>
+</tbody></table>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: un errore nel foglio non è un errore nell'unità. Il foglio resta e l'affermazione che non regge resta con la sua traccia, perché un registro che cancella i propri errori non è un registro.
+
+## PREREQUISITI
+01 somma di frazioni
+
+## OBIETTIVI
+Riconoscere una claim che il proprio documento non sostiene e distinguerla da una claim falsa.
+
+## SCALA
+Livello 4: distingue claim falsa e claim non sostenuta. Livello 3: riconosce che lo span non regge. Livello 2: legge lo span. Livello 1: esegue il foglio.
+
+## EQUIVOCI
+Non confondere «lo span non sostiene la claim» con «la claim è falsa»: la prima è un difetto del documento, la seconda della proposizione.
+
+## ESEMPIO-LAVORATO
+Il foglio afferma che ridurre aumenta il valore assoluto del denominatore. Ridurre divide entrambi per un fattore comune, quindi lo diminuisce o lo lascia invariato.
+
+## VERIFICA
+Indica quale delle due affermazioni del foglio è sostenuta dallo span e quale no, e correggi la seconda.
+
+## LIMITE
+Vale per affermazioni con un solo span: un'affermazione che poggia su più parti del documento non è giudicabile da una coppia sola.
+</template>
+</body>
+</html>

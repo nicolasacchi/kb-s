@@ -1,0 +1,28 @@
+{
+  "archi": [
+    {
+      "a": "n-faccia",
+      "claim": "cl_38_1",
+      "correggibile": false,
+      "da": "n-faccia",
+      "id": "a-dipendenza",
+      "relazione": "caricata da"
+    }
+  ],
+  "argomento": "mappe/05-scena-3d-da-cdn.html",
+  "nodi": [
+    {
+      "claim": "cl_38_2",
+      "correggibile": false,
+      "etichetta": "faccia",
+      "id": "n-faccia",
+      "posizione": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    }
+  ],
+  "runtime": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js",
+  "titolo": "Parallelepipedo: versione con runtime esterno"
+}

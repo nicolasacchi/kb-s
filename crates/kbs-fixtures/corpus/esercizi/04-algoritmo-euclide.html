@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Algoritmo di Euclide e forma normale esplicita</title>
+<meta name="kb-argument" content="esercizi/04-algoritmo-euclide.html">
+<meta name="kb-course" content="informatica-terza">
+<meta name="kb-family" content="esercizi">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="generated">
+</head>
+<body>
+<main>
+<h1 id="titolo">Algoritmo di Euclide e forma normale esplicita</h1>
+<p class="riassunto">Il MCD calcolato con l&#39;algoritmo delle divisioni, e un checker che non è un parser di espressioni.</p>
+<ul class="prerequisiti">
+<li data-prereq="letture/02-divisibilita.html">letture/02-divisibilita.html</li>
+</ul>
+<p>L&#39;algoritmo di Euclide calcola il massimo comune divisore ripetendo la divisione: l&#39;ultimo resto non nullo è il MCD.</p>
+<p>Il checker di questa unità non interpreta espressioni: confronta con una forma normale dichiarata dal generatore. Un parser che decide le risposte è il modo più rapido per costruire un sistema che sbaglia con sicurezza.</p>
+<p class="claim"><span id="span-08-1" data-claim="cl_08_1" data-stato="supported">Il checker di questa unità non interpreta espressioni: confronta con una forma normale dichiarata dal generatore. Un parser che decide le risposte è il modo più rapido per costruire un sistema che sbaglia con sicurezza.</span></p>
+<p class="claim-nota">Affermazione <code>cl_08_1</code>: Il checker non interpreta espressioni: confronta una forma normale dichiarata.</p>
+<section class="esercizi">
+<div class="esercizio" data-esercizio="ex_08_1" data-famiglia="mcd-euclide" data-checker="equivalence">
+<p>Calcola il MCD di a·b e di a·c con l&#39;algoritmo di Euclide e riporta la forma normale dichiarata.</p>
+<p class="istanza" data-seed="s1">istanza 462, 462, 1</p>
+</div>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: il MCD si calcola con l'algoritmo delle divisioni, non scomponendo in fattori primi quando i numeri sono grandi. Il checker confronta una forma normale dichiarata: non valuta.
+
+## PREREQUISITI
+02 divisibilita
+
+## OBIETTIVI
+Calcolare il MCD con l'algoritmo di Euclide e riconoscere la forma normale dichiarata.
+
+## SCALA
+Livello 4: sa perché la forma normale basta e quando non basta. Livello 3: calcola il MCD. Livello 2: esegue una divisione. Livello 1: scompone in fattori primi.
+
+## EQUIVOCI
+Non confondere MCD e mcm, e non credere che due espressioni equivalenti abbiano la stessa forma normale dichiarata.
+
+## ESEMPIO-LAVORATO
+MCD(462, 1071): 1071 = 2·462 + 147, 462 = 3·147 + 21, 147 = 7·21 + 0. L'ultimo resto non nullo è 21.
+
+## VERIFICA
+Calcola il MCD dell'istanza dell'esercizio con l'algoritmo e confronta con la forma normale dichiarata dal generatore.
+
+## LIMITE
+L'algoritmo è definito per interi non negativi: con zero dà il divisore, con negativi dà il MCD dei valori assoluti.
+</template>
+</body>
+</html>

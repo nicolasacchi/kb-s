@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Scelta multipla sulla riduzione</title>
+<meta name="kb-argument" content="esercizi/03-scelta-multipla-frazioni.html">
+<meta name="kb-course" content="matematica-seconda">
+<meta name="kb-family" content="esercizi">
+<meta name="kb-state" content="del-docente">
+<meta name="kb-origin" content="human">
+</head>
+<body>
+<main>
+<h1 id="titolo">Scelta multipla sulla riduzione</h1>
+<p class="riassunto">Quattro alternative, una sola esatta, e il checker che confronta la posizione.</p>
+<ul class="prerequisiti">
+<li data-prereq="esercizi/01-somma-di-frazioni.html">esercizi/01-somma-di-frazioni.html</li>
+</ul>
+<p>Nella scelta multipla il checker confronta la posizione dell&#39;alternativa esatta, non il testo: le alternative possono essere riscritte senza che l&#39;esercizio cambi.</p>
+<p>È il caso più economico di verifica deterministica, e anche il più fragile: se le alternative cambiano ordine senza che l&#39;indice cambi, la risposta esatta cambia sotto gli occhi di chi l&#39;ha già fatta.</p>
+<p class="claim"><span id="span-07-1" data-claim="cl_07_1" data-stato="supported">Nella scelta multipla il checker confronta la posizione dell&#39;alternativa esatta, non il testo: le alternative possono essere riscritte senza che l&#39;esercizio cambi.</span></p>
+<p class="claim-nota">Affermazione <code>cl_07_1</code>: Il checker della scelta multipla confronta la posizione, non il testo dell&#39;alternativa.</p>
+<section class="esercizi">
+<div class="esercizio" data-esercizio="ex_07_1" data-famiglia="scelta-multipla-riduzione" data-checker="multiple-choice">
+<p>Qual è la forma ridotta della frazione data? Le alternative sono tutte equivalenti a una sola.</p>
+<p class="istanza" data-seed="s1">istanza 18, 24, 4</p>
+</div>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: l'indice dell'alternativa esatta fa parte del testo dell'esercizio. Se le alternative si riordinano, l'esercizio è un altro esercizio.
+
+## PREREQUISITI
+01 somma di frazioni
+
+## OBIETTIVI
+Scegliere l'alternativa esatta e giustificare la scelta con una riduzione.
+
+## SCALA
+Livello 4: giustifica anche perché le altre sono sbagliate. Livello 3: sceglie correttamente. Livello 2: riduce a candidates. Livello 1: indovina.
+
+## EQUIVOCI
+Non confondere la posizione con il testo dell'alternativa, e non credere che l'ordine delle opzioni sia irrilevante.
+
+## ESEMPIO-LAVORATO
+Alla domanda «qual è la forma ridotta di 18/24?» le alternative 3/4, 6/8, 9/12 e 12/16 contengono una sola risposta esatta: 3/4. Le altre sono equivalenti alla risposta ma non ridotte.
+
+## VERIFICA
+Rispondi all'esercizio e indica quale alternativa è equivalente ma non in forma ridotta.
+
+## LIMITE
+La posizione esatta vale finché le opzioni non vengono riordinate: l'esercizio non è autosufficiente dopo un riordino.
+</template>
+</body>
+</html>

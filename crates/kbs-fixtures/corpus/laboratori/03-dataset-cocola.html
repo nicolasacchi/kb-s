@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Dataset: code a confronto</title>
+<meta name="kb-argument" content="laboratori/03-dataset-cocola.html">
+<meta name="kb-course" content="informatica-terza">
+<meta name="kb-family" content="laboratori">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="generated">
+</head>
+<body>
+<main>
+<h1 id="titolo">Dataset: code a confronto</h1>
+<p class="riassunto">Il laboratorio che misura, e che dice che cosa non ha misurato.</p>
+<ul class="prerequisiti">
+<li data-prereq="esercizi/04-algoritmo-euclide.html">esercizi/04-algoritmo-euclide.html</li>
+</ul>
+<p>Il foglio confronta tre implementazioni di una coda circolare su insiemi di dati di grandezza diversa e registra il tempo di esecuzione.</p>
+<p>Il foglio dichiara cosa non ha misurato: risoluzione del timer, garbage collector, ordine di esecuzione. Una misura senza le sue incognite dichiarate non è una misura, è un numero.</p>
+<p class="claim"><span id="span-13-1" data-claim="cl_13_1" data-stato="supported">Il foglio dichiara cosa non ha misurato: risoluzione del timer, garbage collector, ordine di esecuzione. Una misura senza le sue incognite dichiarate non è una misura, è un numero.</span></p>
+<p class="claim-nota">Affermazione <code>cl_13_1</code>: Il laboratorio dichiara le incognite della misura prima di pubblicare i numeri.</p>
+<section class="foglio">
+<h2 id="foglio">Foglio di calcolo</h2>
+<table><tbody>
+<tr><td>riga 1</td><td>Il foglio confronta tre implementazioni di una coda circolare su insiemi di dati di grandezza diversa e registra il tempo di esecuzione.</td></tr>
+<tr><td>riga 2</td><td>Il foglio dichiara cosa non ha misurato: risoluzione del timer, garbage collector, ordine di esecuzione. Una misura senza le sue incognite dichiarate non è una misura, è un numero.</td></tr>
+</tbody></table>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: un tempo di esecuzione misurato senza dire la risoluzione del timer e senza dire quante volte è stato ripetuto non dimostra niente. Il foglio dichiara le sue incognite prima di pubblicare i numeri.
+
+## PREREQUISITI
+04 algoritmo euclide
+
+## OBIETTIVI
+Leggere un confronto di prestazioni e riconoscere le incognite non dichiarate.
+
+## SCALA
+Livello 4: progetta il protocollo di misura. Livello 3: legge il confronto e le incognite. Livello 2: sa che cosa misura il timer. Livello 1: esegue il foglio.
+
+## EQUIVOCI
+Non confondere «più veloce in questo esperimento» e «più veloce»: la prima è un fatto, la seconda una generalizzazione.
+
+## ESEMPIO-LAVORATO
+L'implementazione con ricerca lineare batte quella con indice su 10 000 elementi e perde su 1 000 000: la soglia di cambio di comportamento è il fatto, non la vittoria assoluta.
+
+## VERIFICA
+Indica quale delle tre incognite dichiarate pesa di più sul risultato, e motivi la scelta.
+
+## LIMITE
+Vale per la macchina e per il compilatore usati nel laboratorio: un altro ambiente richiede una nuova misura, non un'estrapolazione.
+</template>
+</body>
+</html>

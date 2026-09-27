@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Prova parziale: l&#39;archivio che si auto-diagnostica</title>
+<meta name="kb-argument" content="prove/01-prova-parziale.html">
+<meta name="kb-course" content="matematica-seconda">
+<meta name="kb-family" content="prove">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="human">
+</head>
+<body>
+<main>
+<h1 id="titolo">Prova parziale: l&#39;archivio che si auto-diagnostica</h1>
+<p class="riassunto">Le risposte degli anni passati dicono da sole dove la classe sbaglia.</p>
+<ul class="prerequisiti">
+<li data-prereq="esercizi/02-proporzioni.html">esercizi/02-proporzioni.html</li>
+</ul>
+<p>L&#39;archivio conserva le risposte di tre edizioni della prova, raggruppate per item. Ogni item ha la sua distribuzione, e le distribuzioni dicono quale argomento cade a livello di classe.</p>
+<p>È l&#39;unico oggetto del catalogo che si auto-diagnostica: non serve chiedere alla classe, perché i dati ci sono già e rispondono da soli.</p>
+<p class="claim"><span id="span-14-1" data-claim="cl_14_1" data-stato="supported">L&#39;archivio conserva le risposte di tre edizioni della prova, raggruppate per item. Ogni item ha la sua distribuzione, e le distribuzioni dicono quale argomento cade a livello di classe.</span></p>
+<p class="claim-nota">Affermazione <code>cl_14_1</code>: La distribuzione delle risposte di un item dice quale argomento cade a livello di classe.</p>
+<table class="distribuzione">
+<caption>Distribuzione delle risposte per item</caption>
+<thead><tr><th>Item</th><th>Corrette</th></tr></thead>
+<tbody>
+<tr><td>item-1</td><td>62%</td></tr>
+<tr><td>item-2</td><td>71%</td></tr>
+<tr><td>item-3</td><td>55%</td></tr>
+<tr><td>item-4</td><td>78%</td></tr>
+<tr><td>item-5</td><td>66%</td></tr>
+</tbody>
+</table>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: la matrice risposta-per-studente è un dato personale e non può essere pubblicata. Quello che si pubblica è la distribuzione aggregata, e solo se il numero di studenti che sbaglia raggiunge la soglia.
+
+## PREREQUISITI
+02 proporzioni
+
+## OBIETTIVI
+Legere una distribuzione di risposte e stabilire se un argomento cade a livello di classe.
+
+## SCALA
+Livello 4: distingue il segnale aggregato dal dato individuale. Livello 3: legge la distribuzione. Livello 2: conta le risposte. Livello 1: apre l'archivio.
+
+## EQUIVOCI
+Non confondere «l'item più sbagliato» e «l'argomento non spiegato»: l'item può essere ambiguo e l'argomento può essere chiaro.
+
+## ESEMPIO-LAVORATO
+L'item sulla riduzione ha il 62% di risposte corrette, la media della prova è il 71%: l'argomento cade, e non lo deduce nessuno studente da solo.
+
+## VERIFICA
+Indica quali due item della distribuzione suggeriscono l'argomento in caduta e spiega il criterio che hai usato.
+
+## LIMITE
+Vale per item con un numero di risposte sufficiente: sotto la soglia il segnale non viene aggregato e non viene pubblicato.
+</template>
+</body>
+</html>

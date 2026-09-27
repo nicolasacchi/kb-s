@@ -1,0 +1,80 @@
+# La CI di `kb-s`.
+#
+# Quattro cose, e sono le quattro che il progetto dichiara: costruisce, prova,
+# esegue i doc-test e gira il banco. Nient'altro, e deliberatamente.
+#
+# * **Nessun gate di `cargo fmt --check`.** Il workspace non è formattato con
+#   `rustfmt` in modo uniforme, e una porta sempre rossa viene ignorata; una
+#   porta ignorata è peggio di nessuna porta. Se un giorno il workspace sarà
+#   formattato, quella sarà la porta giusta da aprire.
+# * **`-D warnings` per tutto il workspace.** Un avviso che nessuno legge è un
+#   debito che nessuno paga.
+# * **Il banco gira con `--require-pipeline`.** Un controllo saltato è un
+#   fallimento in CI: in CI non si accetta che un banco decida di non
+#   verificare qualcosa.
+# * **La toolchain è inchiodata** a `1.90.0`, la stessa `rust-version` che
+#   dichiara il manifest del workspace. Le due versioni vanno tenute allineate a
+#   mano: è una riga, e una riga che si può leggere è meglio di una che
+#   decolla da sola.
+
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Il manifest del workspace dichiara `rust-version = "1.90"`.
+  RUST_TOOLCHAIN: "1.90.0"
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+
+jobs:
+  banco:
+    name: costruisci, prova, doc-test, banco
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache di target e del registro Cargo
+        uses: actions/cache@v4
+        with:
+          # `target` è la directory di compilazione, che è ciò che la task chiede
+          # di mettere in cache. `.cargo/registry` e `.cargo/git` ci vanno perché
+          # `kc` usa un `CARGO_HOME` **proprio** dentro il repository: senza
+          # quelli, ogni esecuzione riscarica l'intero registro da zero.
+          path: |
+            target
+            .cargo/registry
+            .cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Installa la toolchain inchiodata
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+
+      - name: Costruisci il workspace
+        run: ./kc build --workspace --all-targets
+
+      - name: Test del workspace
+        run: ./kc test --workspace --all-targets
+
+      - name: Doc-test del workspace
+        run: ./kc test --workspace --doc
+
+      # Il banco è l'unico passo che verifica il **comportamento** e non la
+      # compilazione. Gira dopo i test perché è il più lento, e gira in un passo
+      # a sé perché il suo referto dev'essere leggibile nel log senza cercare.
+      - name: Banco di prova
+        run: >-
+          ./kc run -p kbs-fixtures --bin kbs-bench --
+          run --require-pipeline --corpus crates/kbs-fixtures/corpus

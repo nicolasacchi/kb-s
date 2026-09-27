@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Catena dei prerequisiti di un argomento</title>
+<meta name="kb-argument" content="mappe/03-catena-dei-prerequisiti.html">
+<meta name="kb-course" content="informatica-terza">
+<meta name="kb-family" content="mappe">
+<meta name="kb-state" content="bozza">
+<meta name="kb-origin" content="human">
+</head>
+<body>
+<main>
+<h1 id="titolo">Catena dei prerequisiti di un argomento</h1>
+<p class="riassunto">Unità che si dichiara prerequisito di sé stessa: il ciclo che non entra.</p>
+<ul class="prerequisiti">
+<li data-prereq="mappe/03-catena-dei-prerequisiti.html">mappe/03-catena-dei-prerequisiti.html</li>
+</ul>
+<p>La catena mostra che cosa occorre prima di che cosa. In questo item la dichiarazione è sbagliata: il prerequisito puntato è lo stesso item.</p>
+<p>Un argomento che richiede sé stesso non ha un punto d&#39;ingresso, e quindi non è insegnabile. Non è un problema di ordine di lettura: è un problema di esistenza.</p>
+<p class="claim"><span id="span-36-1" data-claim="cl_36_1" data-stato="supported">Un argomento che richiede sé stesso non ha un punto d&#39;ingresso, e quindi non è insegnabile. Non è un problema di ordine di lettura: è un problema di esistenza.</span></p>
+<p class="claim-nota">Affermazione <code>cl_36_1</code>: Un auto-ciclo non ha punto d&#39;ingresso nel grafo dei prerequisiti.</p>
+<section class="mappa">
+<h2 id="mappa">La mappa</h2>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: una catena di prerequisiti che torna su sé stessa non ha primo nodo. Il primo nodo è l'unica cosa che rende una catena leggibile in ordine.
+
+## PREREQUISITI
+03 catena dei prerequisiti
+
+## OBIETTIVI
+Riconoscere che un grafo di prerequisiti deve essere aciclico e che il primo nodo è ciò che lo rende leggibile.
+
+## SCALA
+Livello 4: sa dire perché un auto-ciclo non ha punto d'ingresso. Livello 3: controlla che la catena non torni indietro. Livello 2: sa che cosa è un prerequisito. Livello 1: guarda la catena.
+
+## EQUIVOCI
+Non confondere «la catena è lunga» e «la catena è ciclica»: la lunghezza è un fatto, il ciclo è un difetto.
+
+## ESEMPIO-LAVORATO
+a prima di b prima di c prima di a: leggendo non si comincia. Togliere un anello qualunque rende la catena leggibile, e la catena senza un anello è un altro grafo.
+
+## VERIFICA
+Indica il primo nodo di una catena di cinque nodi e spiega che cosa succede se un nodo ha due padri.
+
+## LIMITE
+Vale per grafi di prerequisiti: la stessa struttura con nodi e archi invertiti non è un grafo di prerequisiti e ha regole diverse.
+</template>
+</body>
+</html>

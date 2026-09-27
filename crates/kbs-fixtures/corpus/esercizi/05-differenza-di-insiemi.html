@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Differenza di insiemi e controllo della risposta</title>
+<meta name="kb-argument" content="esercizi/05-differenza-di-insiemi.html">
+<meta name="kb-course" content="matematica-seconda">
+<meta name="kb-family" content="esercizi">
+<meta name="kb-state" content="archiviato">
+<meta name="kb-origin" content="human">
+</head>
+<body>
+<main>
+<h1 id="titolo">Differenza di insiemi e controllo della risposta</h1>
+<p class="riassunto">Un esercizio archiviato: resta leggibile a chi lo ha seguito, e non è più citabile.</p>
+<ul class="prerequisiti">
+<li data-prereq="letture/03-frazione-irriducibile.html">letture/03-frazione-irriducibile.html</li>
+</ul>
+<p>La differenza A − B è l&#39;insieme degli elementi di A che non sono in B. Si scrive anche A \ B, e la barra all&#39;indietro non è una divisione.</p>
+<p>L&#39;unità è archiviata: chi l&#39;aveva già in carico la vede ancora, e nessuno la cita come fonte attuale. È la differenza fra conservare e pubblicare.</p>
+<p class="claim"><span id="span-09-1" data-claim="cl_09_1" data-stato="supported">La differenza A − B è l&#39;insieme degli elementi di A che non sono in B. Si scrive anche A \ B, e la barra all&#39;indietro non è una divisione.</span></p>
+<p class="claim-nota">Affermazione <code>cl_09_1</code>: A − A è l&#39;insieme vuoto, e non il numero zero.</p>
+<section class="esercizi">
+<div class="esercizio" data-esercizio="ex_09_1" data-famiglia="differenza-insiemi" data-checker="set">
+<p>Dato l&#39;insieme {a, b, c} e l&#39;insieme {b, d}, scrivi la differenza come insieme ordinato.</p>
+<p class="istanza" data-seed="s1">istanza 1, 2, 3</p>
+</div>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: A − B non è A divisa per B. Se l'insieme B contiene tutto A, allora A − B è vuoto, e un insieme vuoto non ha cardinalità zero per definizione sbagliata.
+
+## PREREQUISITI
+03 frazione irriducibile
+
+## OBIETTIVI
+Calcolare la differenza di due insiemi e controllare il risultato con l'insieme complementare.
+
+## SCALA
+Livello 4: controlla con il complementare. Livello 3: calcola la differenza. Livello 2: elenca gli elementi di A. Livello 1: confonde la differenza con la divisione.
+
+## EQUIVOCI
+Non confondere A − B con B − A, e non leggere la barra all'indietro come una divisione.
+
+## ESEMPIO-LAVORATO
+A = {1, 2, 3}, B = {2, 4}. A − B = {1, 3}. Con A − A si ottiene l'insieme vuoto, che non coincide con 0.
+
+## VERIFICA
+Calcola la differenza dell'istanza e verifica che (A − B) ∩ B sia vuoto.
+
+## LIMITE
+Vale per insiemi finiti rappresentati esplicitamente: la differenza di insiemi infiniti non si calcola per elencazione.
+</template>
+</body>
+</html>
