@@ -21,6 +21,23 @@ pub const DOCENTE: u32 = 1;
 /// La seconda docente, per non avere un solo autore in tutto il banco.
 pub const DOCENTE_2: u32 = 2;
 
+/// La persona che il banco fa agire, e che è diversa da `DOCENTE` per una
+/// ragione che va detta.
+///
+/// Un item che entra per la strada `file` è attribuito a **chi lo ha
+/// indicizzato**, e non a un autore dichiarato nel documento: è la strada
+/// della cartella, e una cartella non ha un autore. Quindi il docente che
+/// promuove nel banco è l'operatore che ha indicizzato, ed è la stessa persona
+/// nelle due operazioni — che è il punto: promuovere con un id diverso da
+/// quello che ha indicizzato significa chiedere a qualcuno che non ha scritto
+/// niente di firmare, e la risposta a quella domanda è un «no» che parla di
+/// visibilità e non di ratifica.
+///
+/// Il numero è quello che `kbs_intake::cli` chiama `PERSONA_SISTEMA`, cioè il
+/// default di `--person` per `kbs verify`. Non è un accordo privato: è il
+/// default dichiarato del verbo che il banco usa.
+pub const OPERATORE: &str = "person_0000";
+
 /// Come è nato l'argomento (D10). `Generato` porta il **model lock**: senza
 /// prompt hash e corpus hash non c'è un registro, c'è un diario.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -33,8 +33,16 @@ OPZIONI DI `run`:
     --require-pipeline     un controllo saltato è un fallimento: è la regola della CI
 
 CONTRATTO CON LA PIPELINE:
-    kbs-bench esegue «kbs verify --json --db <percorso> <radice>» e legge da stdout
-    un JSON con i campi items, index, claims e instances. La forma esatta è
+    kbs-bench esegue una SEQUENZA di atti, non un comando solo:
+
+        kbs verify  --json --db <percorso> <radice>
+        kbs promote --person <id> --arg <rel> --path <file> --db <percorso> <radice>
+
+    «verify» legge da stdout un JSON con i campi items, index, claims e
+    instances. «promote» risponde e può rifiutare: un rifiuto è un verdetto,
+    non un errore. La sequenza serve perché la citabilità di D4 non si vede da
+    una cartella — una pipeline che indicizza non firma niente — e senza
+    «promote» il banco osserverebbe solo un indice vuoto. La forma esatta è
     documentata in kbs_fixtures::adapter. Se il binario non esiste o non parla
     come previsto, i controlli che lo richiedono sono SALTATI con la ragione.
 ";

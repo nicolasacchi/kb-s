@@ -70,6 +70,65 @@ async fn un_segnale_sopra_soglia_esce_e_uno_sotto_no() {
         "l'errore non nomina la soglia: {errore}"
     );
 
+    // Sopra soglia la scrittura passa **solo se il conteggio dichiarato è
+    // vero**: `record_cohort_signal` ricalcola `COUNT(DISTINCT student)` dalle
+    // osservazioni e rifiuta se non coincide. Quindi qui il test non può
+    // dichiarare un numero: deve costruire cinque studenti che falliscono
+    // davvero l'argomento, uno ciascuno.
+    //
+    // Prima che il negozio ricalcolasse, questo test passava dichiarando
+    // `failing: 5` senza niente dietro — e il segnale che ne usciva diceva
+    // «cinque studenti sbagliano questo argomento» quando a sbagliare era
+    // stato uno solo, o nessuno.
+    let sessione = scuola
+        .db
+        .write(|store| Ok(store.open_session(kbs_store::Register::Observations, "coorte")?))
+        .expect("sessione di osservazioni");
+    for n in 0..COHORT_MIN_K {
+        let studente = kbs_core::PersonId::fixture(100 + n as u32);
+        let persona = kbs_store::Person {
+            id: studente.clone(),
+            display_name: format!("studente {n}"),
+            created_at: Millis(1_700_000_000_000),
+        };
+        scuola
+            .db
+            .write(|store| {
+                store.upsert_person(&persona)?;
+                Ok(store.append_observation(
+                    &sessione,
+                    kbs_store::ObservationDraft {
+                        id: format!("obs-{n}"),
+                        student: studente,
+                        course: scuola.corso.clone(),
+                        cohort: CohortId("2A".into()),
+                        argument: argomento.id.clone(),
+                        // Un fallimento è un esercizio verificato e risposto
+                        // male. `Evidence::None` non è un fallimento: è
+                        // l'assenza di una prova, e il negozio conta
+                        // correttamente zero.
+                        evidence: kbs_core::Evidence::Checked {
+                            exercise: "es-sei".into(),
+                            instance: "seed-1".into(),
+                            correct: false,
+                        },
+                        judged_by: None,
+                        at: Millis(1_700_000_000_000),
+                    },
+                )?)
+            })
+            .unwrap_or_else(|e| panic!("osservazione {n}: {e}"));
+    }
+    // Cinque studenti distinti, quindi `COUNT(DISTINCT student)` vale 5 e il
+    // totale dichiarato è l'unico che il negozio accetterà.
+    let segnale = |failing: usize| CohortSignal {
+        course: scuola.corso.clone(),
+        cohort: CohortId("2A".into()),
+        argument: argomento.id.clone(),
+        failing,
+        total: 5,
+        at: Millis(1_700_000_000_000),
+    };
     scuola
         .db
         .write(|store| Ok(store.record_cohort_signal(&segnale(COHORT_MIN_K))?))

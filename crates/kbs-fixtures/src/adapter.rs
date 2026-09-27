@@ -409,18 +409,6 @@ pub(crate) fn referto_di(
     }
 }
 
-/// Come il banco raggiunge la pipeline. Un tratto, non una gerarchia: ne serve
-/// uno, e quello giusto.
-pub trait Pipeline {
-    /// Come la pipeline è stata raggiunta, per il referto. Solo il nome del
-    /// binario: un percorso assoluto renderebbe il referto diverso su ogni
-    /// macchina e quindi non confrontabile.
-    fn descrizione(&self) -> String;
-
-    /// Esegue la pipeline sul corpus indicato.
-    fn esegui(&self, corpus: &Corpus, radice: &Path) -> Result<Uscita, PipelineError>;
-}
-
 /// La pipeline reale, raggiunta come processo.
 #[derive(Debug, Clone)]
 pub struct ProcessPipeline {

@@ -17,7 +17,7 @@ use crate::adapter::{self, Atto, Eseguito, Pipeline, PipelineError, Session, Usc
 use crate::contract::{self, Defect, HARD_CAP};
 use crate::corpus::{self, Corpus};
 use crate::families;
-use crate::spec::{ClaimStatusKind, Spec};
+use crate::spec::{self, ClaimStatusKind, RatificaSpec, Spec};
 use kbs_core::{PublicationState, Relation};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -166,7 +166,9 @@ impl Config {
 /// La seconda strada è quella che una scuola percorre: si legge, si decide,
 /// si firma, si rilegge. Qui sotto ci sono i quattro atti, e ognuno ha un
 /// controllo con un nome suo.
-struct D4 {
+struct D4<'a> {
+    /// La tabella, per tradurre un `ArgumentId` in un percorso relativo.
+    corpus: &'a Corpus,
     /// `verify` sul database appena creato: nessuno ha ancora ratificato
     /// niente, e quindi niente è citabile.
     vuoto: Uscita,
@@ -186,10 +188,15 @@ struct D4 {
 /// La seconda strada sulla copia: promuovere, cambiare il contratto,
 /// verificare di nuovo.
 struct Copia {
-    /// `verify` sulla copia, prima di promuovere.
+    /// `verify` sulla copia prima di promuovere: anche qui nessuno ha
+    /// ratificato, ed è lo stesso punto di partenza.
     vuoto: Uscita,
     /// `promote` sulla copia, per gli stessi item del corpus di lavoro.
     promozioni: Vec<Eseguito>,
+    /// `verify` sulla copia dopo la promozione e **prima** della riscrittura:
+    /// l'item riscritto è qui citabile, e senza questa riga il banco
+    /// confronterebbe una transizione che non ha osservato.
+    prima_del_cambio: Uscita,
     /// `verify` sulla copia **dopo** che il contratto di un item è stato
     /// riscritto sotto la ratifica che quel docente aveva già firmato.
     dopo_il_cambio: Uscita,
@@ -197,7 +204,7 @@ struct Copia {
     rel_riscritto: String,
 }
 
-impl D4 {
+impl<'a> D4<'a> {
     /// Gli item che la seconda strada ha promosso, per percorso relativo.
     fn promossi(&self, promozioni: &[Eseguito]) -> BTreeSet<String> {
         promozioni
@@ -233,7 +240,7 @@ impl<'a> Banco<'a> {
     /// Le voci che la tabella dichiara ratificate di fresco: sono quelle su
     /// cui il docente ha firmato sul contratto di oggi, e quindi le uniche su
     /// cui ha senso chiedere alla porta di accettare.
-    fn fresche(&self) -> Vec<&'a Spec> {
+    fn fresche(&self) -> Vec<&Spec> {
         self.corpus
             .voci()
             .iter()
@@ -251,7 +258,7 @@ impl<'a> Banco<'a> {
     /// validazione invece della ratifica), e con almeno un prerequisito (senza,
     /// riscrivere il contratto non cambierebbe niente e l'hash resterebbe
     /// quello).
-    fn item_riscrivibile(&self) -> Option<&'a Spec> {
+    fn item_riscrivibile(&self) -> Option<&Spec> {
         self.corpus.voci().iter().find(|s| {
             s.ratifica == RatificaSpec::Fresca
                 && s.stato == PublicationState::InCorso
@@ -274,7 +281,7 @@ impl<'a> Banco<'a> {
     /// 4. la stessa strada su una **copia**, con il contratto di un item
     ///    riscritto sotto la ratifica già firmata — l'item deve uscire
     ///    dall'indice per `stale-ratification`, e nessun altro.
-    fn seconda_strada(&self) -> Result<D4, PipelineError> {
+    fn seconda_strada(&self) -> Result<D4<'_>, PipelineError> {
         let nome = self.pipeline.descrizione();
         let fresche = self.fresche();
         if fresche.is_empty() {
@@ -320,7 +327,7 @@ impl<'a> Banco<'a> {
         let prima = self.pipeline.sequenza(&self.corpus, &sessione_copia, &atti_copia)?;
         let c_vuoto = adapter::referto_di(&nome, &prima, 0)?;
         let c_promozioni = prima[1..=n].to_vec();
-        let c_dopo = adapter::referto_di(&nome, &prima, n + 1)?;
+        let c_prima = adapter::referto_di(&nome, &prima, n + 1)?;
 
         // **Qui il banco cambia il contratto.** È un atto di banco e non un
         // atto di pipeline: il banco è il docente che corregge il proprio
@@ -342,12 +349,14 @@ impl<'a> Banco<'a> {
         let c_dopo_il_cambio = adapter::referto_di(&nome, &terza, 0)?;
 
         Ok(D4 {
+            corpus: &self.corpus,
             vuoto,
             promozioni,
             dopo,
             copia: Copia {
                 vuoto: c_vuoto,
                 promozioni: c_promozioni,
+                prima_del_cambio: c_prima,
                 dopo_il_cambio: c_dopo_il_cambio,
                 rel_riscritto,
             },
@@ -355,6 +364,7 @@ impl<'a> Banco<'a> {
         })
     }
 }
+
 /// Esegue il banco.
 pub struct Banco<'a> {
     corpus: Corpus,
@@ -378,9 +388,15 @@ impl<'a> Banco<'a> {
 
     /// Esegue tutti i controlli e restituisce il referto.
     pub fn esegui(&self) -> Referto {
-        let pipeline = self.pipeline.esegui(&self.corpus, &self.cfg.radice);
+        let prima = self.pipeline.esegui(&self.corpus, &self.cfg.radice);
+        // La seconda strada è una richiesta **separata** e non un prolungo
+        // della prima: se non parte, i suoi controlli sono saltati con la
+        // ragione, e non si accodano a quelli che la prima strada ha già
+        // prodotto. Un controllo che eredita l'esito di un altro è un
+        // controllo che non ha verificato niente.
+        let d4 = self.seconda_strada();
         let mut controlli = self.controlli_su_corpus();
-        controlli.extend(self.controlli_su_pipeline(&pipeline));
+        controlli.extend(self.controlli_su_pipeline(&prima, &d4));
         let (descrizione, ignoti) = self.dati_di_contesto();
         Referto {
             controlli,
@@ -1015,7 +1031,11 @@ impl<'a> Banco<'a> {
     // ─────────────────────────────────────────────────────────────────────────
     // Controlli sulla pipeline: senza di lei sono saltati, con la ragione.
     // ─────────────────────────────────────────────────────────────────────────
-    fn controlli_su_pipeline(&self, esito: &Result<Uscita, PipelineError>) -> Vec<Controllo> {
+    fn controlli_su_pipeline(
+        &self,
+        esito: &Result<Uscita, PipelineError>,
+        d4: &Result<D4<'_>, PipelineError>,
+    ) -> Vec<Controllo> {
         let saltato = |e: &PipelineError| Esito::Saltato(e.to_string());
         let uscita = match esito {
             Ok(u) => u,
@@ -1023,25 +1043,29 @@ impl<'a> Banco<'a> {
                 return vec![
                     pc("pipeline.validazione.corrisponde_all_attesa", saltato(e)),
                     pc("pipeline.validazione.i_codici_di_rifiuto", saltato(e)),
-                    pc("pipeline.indicizzazione.solo_i_ratificati_sono_citabili", saltato(e)),
                     pc("pipeline.registro.gli_errori_restano_e_non_si_cancellano", saltato(e)),
                     pc("pipeline.registro.le_claim_non_citabili_sono_soppresse_in_output", saltato(e)),
                     pc("pipeline.prerequisiti.il_ciclo_e_rifiutato", saltato(e)),
                     pc("pipeline.documenti.solo_la_versione_locale_di_three_e_pubblicabile", saltato(e)),
                     pc("pipeline.documenti.la_scena_3d_e_manipolabile_e_i_suoi_dati_sono_il_contenuto", saltato(e)),
+                    pc("pipeline.d4.su_un_corpus_non_ratificato_niente_e_citabile", saltato(e)),
+                    pc("pipeline.d4.la_promozione_e_l_atto_del_docente", saltato(e)),
+                    pc("pipeline.d4.dopo_la_promozione_e_citabile_esattamente_il_gruppo_promosso", saltato(e)),
+                    pc("pipeline.d4.il_contratto_riscritto_sotto_una_ratifica_viva_esce_dal_citabile", saltato(e)),
                 ]
             }
         };
-        vec![
+        // I quattro controlli di D4 hanno la loro **propria** richiesta e la
+        // propria ragione di saltato: se la seconda strada non parte, il
+        // motivo è quello della seconda strada e non quello della prima. Un
+        // controllo che eredita la ragione di un altro non sa perché è
+        // saltato, e chi legge il referto deve poter saperlo.
+        let mut controlli = vec![
             pc(
                 "pipeline.validazione.corrisponde_all_attesa",
                 self.c_validazione(uscita),
             ),
             pc("pipeline.validazione.i_codici_di_rifiuto", self.c_codici(uscita)),
-            pc(
-                "pipeline.indicizzazione.solo_i_ratificati_sono_citabili",
-                self.c_citabili(uscita),
-            ),
             pc(
                 "pipeline.registro.gli_errori_restano_e_non_si_cancellano",
                 self.c_registro(uscita),
@@ -1059,7 +1083,46 @@ impl<'a> Banco<'a> {
                 "pipeline.documenti.la_scena_3d_e_manipolabile_e_i_suoi_dati_sono_il_contenuto",
                 self.c_manipolazione(uscita),
             ),
-        ]
+        ];
+        match d4 {
+            Ok(d4) => {
+                controlli.push(pc(
+                    "pipeline.d4.su_un_corpus_non_ratificato_niente_e_citabile",
+                    self.c_d4_vuoto(d4),
+                ));
+                controlli.push(pc(
+                    "pipeline.d4.la_promozione_e_l_atto_del_docente",
+                    self.c_d4_promozione(d4),
+                ));
+                controlli.push(pc(
+                    "pipeline.d4.dopo_la_promozione_e_citabile_esattamente_il_gruppo_promosso",
+                    self.c_d4_citabili(d4),
+                ));
+                controlli.push(pc(
+                    "pipeline.d4.il_contratto_riscritto_sotto_una_ratifica_viva_esce_dal_citabile",
+                    self.c_d4_superata(d4),
+                ));
+            }
+            Err(e) => {
+                controlli.push(pc(
+                    "pipeline.d4.su_un_corpus_non_ratificato_niente_e_citabile",
+                    saltato(e),
+                ));
+                controlli.push(pc(
+                    "pipeline.d4.la_promozione_e_l_atto_del_docente",
+                    saltato(e),
+                ));
+                controlli.push(pc(
+                    "pipeline.d4.dopo_la_promozione_e_citabile_esattamente_il_gruppo_promosso",
+                    saltato(e),
+                ));
+                controlli.push(pc(
+                    "pipeline.d4.il_contratto_riscritto_sotto_una_ratifica_viva_esce_dal_citabile",
+                    saltato(e),
+                ));
+            }
+        }
+        controlli
     }
 
     fn c_validazione(&self, u: &Uscita) -> Esito {
@@ -1107,25 +1170,289 @@ impl<'a> Banco<'a> {
         Esito::fallito_collect(problemi)
     }
 
-    fn c_citabili(&self, u: &Uscita) -> Esito {
-        let attesi: Vec<String> = corpus::citabili().iter().map(|i| i.0.clone()).collect();
-        let ottenuti = &u.index.citable;
+    // ─────────────────────────────────────────────────────────────────────────
+    // D4, la seconda strada. Quattro controlli e non uno: uno per atto.
+    //
+    // Un controllo che può fallire per quattro ragioni è un controllo che
+    // verrà riportato per la ragione sbagliata, e chi legge il referto non ha
+    // modo di saperlo. Ognuno dei quattro ha una precondizione propria e
+    // guarda una cosa sola.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// **Atto 1.** `verify` su un database in cui nessuno ha agito: l'indice
+    /// non deve citare niente, e ogni item deve dire perché non è citabile.
+    ///
+    /// Il motivo dell'invariante è dichiarato e non indiziato: su un database
+    /// vuoto l'unica ragione possibile è che **manca la ratifica**, e se la
+    /// pipeline dicesse qualcos'altro starebbe misurando un'altra cosa. Il
+    /// controllo dichiara anche che la tabella ha qualcosa di ratificabile:
+    /// un indice vuoto su un corpus in cui non c'è niente da ratificare è
+    /// vero e non dimostra niente.
+    fn c_d4_vuoto(&self, d4: &D4<'_>) -> Esito {
+        if self.fresche().is_empty() {
+            return Esito::fallito(
+                "la tabella non dichiara nessuna ratifica fresca: un indice vuoto non dimostra che la ratifica sia ciò che manca",
+            );
+        }
         let mut problemi = Vec::new();
-        for mancante in attesi.iter().filter(|i| !ottenuti.contains(i)) {
-            problemi.push(format!("{mancante}: il banco lo considera citabile e la pipeline no"));
+        if !d4.vuoto.index.citable.is_empty() {
+            let mut nomi: Vec<&str> = d4
+                .vuoto
+                .index
+                .citable
+                .iter()
+                .map(String::as_str)
+                .collect();
+            nomi.sort();
+            problemi.push(format!(
+                "{} argomenti sono citabili su un database in cui nessuno ha ratificato ({}): un item non ratificato è leggibile, e leggibile non è citabile",
+                nomi.len(),
+                nomi.join(", ")
+            ));
         }
-        for extra in ottenuti.iter().filter(|i| !attesi.contains(i)) {
-            problemi.push(format!("{extra}: la pipeline lo considera citabile e il banco no"));
+        for s in self.corpus.voci() {
+            let id = corpus::id_di(s);
+            let riga = d4.vuoto.index.not_citable.iter().find(|n| n.id == id.as_str());
+            match riga {
+                None => problemi.push(format!(
+                    "{rel}: la pipeline non ha detto perché non è citabile, e un verdetto senza motivo non si contesta",
+                    rel = s.rel
+                )),
+                Some(nc) => {
+                    if nc.invariant.trim().is_empty() {
+                        problemi.push(format!("{rel}: non citabile senza invariante dichiarata", rel = s.rel));
+                    }
+                    if nc.message.trim().is_empty() {
+                        problemi.push(format!("{rel}: non citabile senza motivo dichiarato", rel = s.rel));
+                    }
+                    if nc.invariant == "citable-without-ratification" {
+                        continue;
+                    }
+                    problemi.push(format!(
+                        "{}: l'invariante è «{}» e su un database vuoto l'unica ragione possibile è che la ratifica manca",
+                        s.rel, nc.invariant
+                    ));
+                }
+            }
         }
-        // Ogni motivo di non citabilità deve essere detto: un «non citabile»
-        // senza motivo è un verdetto, e i verdetti non si contestano.
-        for nc in &u.index.not_citable {
-            if nc.message.trim().is_empty() {
-                problemi.push(format!("{}: non citabile senza motivo dichiarato", nc.id));
+        Esito::fallito_collect(problemi)
+    }
+
+    /// **Atto 2.** `promote` su tutto ciò che la tabella dichiara ratificato di
+    /// fresco: l'atto del docente, e l'unico modo in cui una ratifica entra
+    /// nel sistema.
+    ///
+    /// Il controllo non chiede che la porta accetti tutto: un rifiuto può
+    /// essere giusto — un item archiviato non si porta a in uso, e la tabella
+    /// ne ha. Chiede tre cose, e sono le tre che rendono l'atto una verifica:
+    /// che ogni item **dichiarato in uso** sia stato promosso (una porta che
+    /// chiude a tutto non sta verificando niente), che ogni rifiuto **dica
+    /// perché**, e che qualcosa sia stato promosso (una porta che non apre mai
+    /// l'ha esercitata altrettanto poco).
+    fn c_d4_promozione(&self, d4: &D4<'_>) -> Esito {
+        let fresche = self.fresche();
+        if d4.promozioni.len() != fresche.len() {
+            return Esito::fallito(format!(
+                "{} atti di promozione eseguiti per {} item ratificati di fresco: la sequenza non è quella che il banco ha chiesto",
+                d4.promozioni.len(),
+                fresche.len()
+            ));
+        }
+        let mut problemi = Vec::new();
+        let mut promossi = 0usize;
+        for (i, (s, e)) in fresche.iter().zip(d4.promozioni.iter()).enumerate() {
+            if e.atto.soggetto.as_deref() != Some(s.rel) {
+                problemi.push(format!(
+                    "l'atto di promozione numero {} è su {:?} e non su {}: i risultati non sono attribuibili",
+                    i + 1,
+                    e.atto.soggetto,
+                    s.rel
+                ));
+                continue;
             }
-            if nc.invariant.trim().is_empty() {
-                problemi.push(format!("{}: non citabile senza invariante dichiarata", nc.id));
+            if e.ok() {
+                promossi += 1;
+                continue;
             }
+            // Un rifiuto è lecito, ma solo dove la tabella non dice che
+            // l'item è in uso. Su un item che la tabella dichiara in uso la
+            // porta non può chiudere, e se chiude è perché qualcosa nel
+            // contratto non sta regendo: il motivo del rifiuto lo dice, e va
+            // detto anche in questo caso.
+            if s.stato == PublicationState::InCorso {
+                problemi.push(format!(
+                    "{rel}: la tabella lo dichiara in uso e la porta ha rifiutato di promuoverlo — {motivo}",
+                    rel = s.rel,
+                    motivo = e.motivo()
+                ));
+            }
+            if e.motivo().trim().is_empty() {
+                problemi.push(format!(
+                    "{rel}: la porta ha rifiutato la promozione senza dire perché",
+                    rel = s.rel
+                ));
+            }
+        }
+        if promossi == 0 {
+            problemi.push(
+                "nessuna promozione accettata: l'atto del docente non è mai entrato, e gli atti 3 e 4 avrebbero misurato un sistema a cui nessuno ha chiesto niente"
+                    .to_string(),
+            );
+        }
+        Esito::fallito_collect(problemi)
+    }
+
+    /// **Atto 3.** `verify` sullo stesso database, dopo le promozioni: e adesso
+    /// l'indice deve citare **esattamente** il gruppo promosso.
+    ///
+    /// È il controllo che chiude D4 sul corpus, ed è quello che non si può
+    /// raggirare: i due insiemi sono confrontati in entrambe le direzioni. Un
+    /// item promosso e non citato significa che la ratifica non rende
+    /// citabile; un item citato e non promosso significa che è entrato
+    /// nell'indice condiviso senza che nessuno l'avesse firmato.
+    fn c_d4_citabili(&self, d4: &D4<'_>) -> Esito {
+        let promossi = d4.promossi(&d4.promozioni);
+        if promossi.is_empty() {
+            return Esito::fallito(
+                "nessun item promosso: il confronto con il citabile sarebbe tra due insiemi vuoti e direbbe niente",
+            );
+        }
+        let citati = d4.citati(&d4.dopo);
+        let mut problemi = Vec::new();
+        for mancante in promossi.difference(&citati) {
+            problemi.push(format!(
+                "{mancante}: la porta l'ha promosso e l'indice non lo cita — la ratifica non rende citabile"
+            ));
+        }
+        for extra in citati.difference(&promossi) {
+            problemi.push(format!(
+                "{extra}: l'indice lo cita e nessuno l'ha promosso — un item non ratificato non entra nell'indice condiviso"
+            ));
+        }
+        Esito::fallito_collect(problemi)
+    }
+
+    /// **Atto 4.** La stessa strada su una copia, con il contratto di un item
+    /// riscritto sotto la ratifica che quel docente aveva già firmato: e
+    /// l'item deve uscire dall'indice, per `stale-ratification` e non per
+    /// un'altra ragione.
+    ///
+    /// Le quattro cose che il controllo verifica sono tutte necessarie, e
+    /// ognuna chiude una falsificazione diversa:
+    ///
+    /// * l'item **era** citabile prima della riscrittura — senza questo il
+    ///   banco confronterebbe uno stato, non una transizione;
+    /// * dopo la riscrittura **non** lo è più, e la riga che lo dichiara porta
+    ///   l'invariante `stale-ratification`;
+    /// * il messaggio nomina **due hash diversi** — «superata» senza i due hash
+    ///   è una parola, e una parola non è una verifica;
+    /// * l'item è ancora **valido** — se fosse uscito perché il contratto lo
+    ///   rifiuta, il banco avrebbe misurato la validazione e avrebbe
+    ///   dichiarato che la ratifica è superata.
+    ///
+    /// E le due estremità della transizione, perché il controllo guarda uno
+    /// **spostamento** e non uno stato: sulla copia, prima di promuovere, non
+    /// era citabile nessuno; dopo la riscrittura non è citabile proprio
+    /// quell'altro. Se il primo capo non stasse, l'uscita dall'indice
+    /// potrebbe dipendere da qualcosa che è successo prima e non dalla
+    /// riscrittura.
+    /// E l'ultima riga: **nessun altro** item esce. Una riscrittura che
+    /// svuota l'indice non ha dimostrato che la ratifica conti, ha dimostrato
+    /// che qualcosa si è rotto.
+    fn c_d4_superata(&self, d4: &D4<'_>) -> Esito {
+        let c = &d4.copia;
+        let id = match self
+            .corpus
+            .voci()
+            .iter()
+            .find(|s| s.rel == c.rel_riscritto)
+            .map(corpus::id_di)
+        {
+            Some(id) => id,
+            None => {
+                return Esito::fallito(format!(
+                    "{}: il banco ha riscritto un contratto che la tabella non conosce, e il caso non è quello che dichiara di esercitare",
+                    c.rel_riscritto
+                ))
+            }
+        };
+        let rel = c.rel_riscritto.as_str();
+        let promossi = d4.promossi(&c.promozioni);
+        if !promossi.contains(rel) {
+            return Esito::fallito(format!(
+                "{rel}: la porta non l'ha promosso sulla copia, e senza una ratifica viva non c'è nessuna ratifica da superare"
+            ));
+        }
+
+        let mut problemi = Vec::new();
+        if d4.citati(&c.vuoto).contains(rel) {
+            problemi.push(format!(
+                "{rel}: era già citabile sulla copia prima di qualsiasi promozione, e la transizione che il banco misura non è quella che dichiara"
+            ));
+        }
+        if !d4.citati(&c.prima_del_cambio).contains(rel) {
+            problemi.push(format!(
+                "{rel}: prima della riscrittura del contratto non era citabile, e il banco avrebbe confrontato uno stato con uno stato"
+            ));
+        }
+        if d4.citati(&c.dopo_il_cambio).contains(rel) {
+            problemi.push(format!(
+                "{rel}: il contratto è stato riscritto dopo la firma e l'indice lo cita ancora — la ratifica vale per un testo che non è più quello firmato"
+            ));
+        }
+        let riga = c
+            .dopo_il_cambio
+            .index
+            .not_citable
+            .iter()
+            .find(|n| n.id == id.as_str());
+        match riga {
+            None => problemi.push(format!(
+                "{rel}: la pipeline non ha detto perché non è più citabile, e un item che esce dall'indice in silenzio non è un item che esce per la ratifica"
+            )),
+            Some(nc) => {
+                if nc.invariant != "stale-ratification" {
+                    problemi.push(format!(
+                        "{rel}: l'invariante è «{}» e quello della ratifica superata è «stale-ratification»",
+                        nc.invariant,
+                        rel = rel
+                    ));
+                }
+                let mut hash: Vec<&str> = nc
+                    .message
+                    .split("sha256:")
+                    .skip(1)
+                    .map(|h| h.split(|c: char| !c.is_ascii_hexdigit()).next().unwrap_or(""))
+                    .filter(|h| !h.is_empty())
+                    .collect();
+                hash.sort_unstable();
+                hash.dedup();
+                if hash.len() < 2 {
+                    problemi.push(format!(
+                        "{rel}: il motivo non nomina i due hash che non coincidono, e «superata» senza i due hash è una parola: {motivo}",
+                        motivo = nc.message
+                    ));
+                }
+            }
+        }
+        match c.dopo_il_cambio.item(rel) {
+            None => problemi.push(format!(
+                "{rel}: la pipeline non ha riportato l'item, e non si può dire che sia ancora valido"
+            )),
+            Some(d) if !d.valid => problemi.push(format!(
+                "{rel}: il contratto riscritto non è valido, e l'item sarebbe uscito dall'indice per la validazione e non per la ratifica superata: {:?}",
+                d.errors.iter().map(|e| e.code.as_str()).collect::<Vec<_>>()
+            )),
+            Some(_) => {}
+        }
+        for uscito in d4
+            .citati(&c.prima_del_cambio)
+            .difference(&d4.citati(&c.dopo_il_cambio))
+            .filter(|r| *r != rel)
+        {
+            problemi.push(format!(
+                "{uscito}: è uscito dall'indice insieme all'item con il contratto riscritto, e la sua ratifica non è stata toccata"
+            ));
         }
         Esito::fallito_collect(problemi)
     }
@@ -1556,7 +1883,7 @@ mod tests {
         nomi.sort();
         nomi.dedup();
         assert_eq!(nomi.len(), n, "due controlli hanno lo stesso nome");
-        assert_eq!(n, 22, "il banco ha 14 controlli sul corpus e 8 sulla pipeline");
+        assert_eq!(n, 25, "il banco ha 14 controlli sul corpus e 11 sulla pipeline");
     }
 
     /// Un banco senza pipeline non è un banco verde: è un banco che ha detto
@@ -1566,7 +1893,7 @@ mod tests {
         let assente = crate::adapter::PipelineAssente { ragione: "binario assente".into() };
         let banco = Banco::new(Config::radice_di_default(), &assente);
         let r = banco.esegui();
-        assert_eq!(r.saltati(), 8);
+        assert_eq!(r.saltati(), 11);
         assert!(!r.esito_con_rigidezza(true), "in CI i saltati sono fallimenti");
         for c in r.controlli.iter().filter(|c| c.di_pipeline) {
             match &c.esito {

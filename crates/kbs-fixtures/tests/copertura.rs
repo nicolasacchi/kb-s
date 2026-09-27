@@ -8,7 +8,7 @@
 //! diverso sarebbe un secondo banco, e due banche non si confrontano.
 
 use kbs_core::{
-    check_citable, ClaimStatus, Invariant, Millis, PublicationState, Ratification, SeqInSession,
+    check_citable, ClaimStatus, Invariant, Millis, PublicationState, SeqInSession,
 };
 use kbs_fixtures::adapter::PipelineAssente;
 use kbs_fixtures::checks::{famiglie_coperte, Banco, Config, Esito};
@@ -147,11 +147,18 @@ fn una_claim_contraddetta_e_una_non_citabile_su_dati_veri() {
     let (_, nc) = non_citabile;
     assert!(!nc.testo_span.is_some());
     // E la regola «un errore si registra, non si cancella», applicata alle righe
-    // che il banco costruisce.
+    // che il banco costruisce. «Non si cancella» riguarda il **registro**, non
+    // l'output: una claim che il proprio documento non sostiene resta
+    // iscritta e con la sua traccia, e non viene pubblicata come se reggesse.
+    // Le due cose sono diverse, e confonderle è il modo in cui un registro
+    // smette di essere un registro.
     let core = nc.stato.to_core();
     assert!(matches!(core, ClaimStatus::Unciteable));
     assert!(core.suppresses_output(), "una claim non citabile non esce dall'output");
-    assert!(!ClaimStatus::Contradicted.suppresses_output());
+    assert!(
+        ClaimStatus::Contradicted.suppresses_output(),
+        "una claim contraddetta non esce dall'output citabile: si cita un'affermazione che il proprio documento non sostiene, e un errore non si cita come se fosse vero"
+    );
 }
 
 /// La scena 3D: una claim per nodo e per arco, almeno una relazione
@@ -292,7 +299,7 @@ fn la_catena_e_reale_e_il_ciclo_e_dichiarato() {
 fn il_referto_dichiara_i_saltati_e_in_ci_sono_fallimenti() {
     let r = banco();
     assert_eq!(r.falliti(), 0, "{}", report_da(&r));
-    assert_eq!(r.saltati(), 8, "otto controlli dipendono dalla pipeline");
+    assert_eq!(r.saltati(), 11, "undici controlli dipendono dalla pipeline");
     assert!(r.ok(), "senza pipeline il banco non deve fallire");
     assert!(!r.esito_con_rigidezza(true), "in CI i saltati sono fallimenti");
     for c in r.controlli.iter().filter(|c| c.di_pipeline) {

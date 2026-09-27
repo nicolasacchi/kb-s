@@ -33,6 +33,27 @@
 //! raggiungibile. Le due famiglie non si sovrappongono, e nessuna delle due fa
 //! il lavoro dell'altra.
 //!
+//! # Perché il banco esegue una sequenza di atti
+//!
+//! D4 ha due strade, e il banco le percorre entrambe.
+//!
+//! La prima è quella di `kbs verify`: una pipeline che indicizza una cartella
+//! e dice quali argomenti sono citabili. Da sola non basta, e non perché
+//! misuri poco: **da una cartella non esce nessuna ratifica.** La ratifica è
+//! un atto separato, di una persona, e senza `kbs promote` il banco
+//! confronterebbe un database in cui nulla è ratificato con una tabella Rust
+//! che dichiara una ratifica — un input che non esiste in nessun file e in
+//! nessun database. Quel confronto era rosso per costruzione, e rosso per
+//! costruzione non è una verifica.
+//!
+//! La seconda è quella che una scuola percorre: leggi, decidi, firmi, rileggi.
+//! Il banco la esegue per intero, **attraverso il processo** — che è la stessa
+//! interfaccia che D10.2 dichiara come «la CLI come protocollo» — e ne deduce
+//! quattro cose, in quattro controlli con quattro nomi: un indice vuoto
+//! prima che qualcuno agisca, la promozione come atto del docente, l'indice
+//! che dopo contiene esattamente il gruppo promosso, e un item che esce
+//! dall'indice quando il suo contratto cambia sotto una ratifica già firmata.
+//!
 //! # Determinismo
 //!
 //! Nessun `Millis::now()`, nessun percorso assoluto nel referto, nessuna

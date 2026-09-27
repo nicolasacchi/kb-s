@@ -12,7 +12,6 @@
 //! vera, ed entrambe sono sul generatore vero, chiamato due volte.
 
 use kbs_exercise::families::all;
-use kbs_exercise::Generator;
 
 /// Le famiglie sono cinque, e il numero è dichiarato: un banco che non esercita
 /// tutte le famiglie esercita una famiglia, e un generatore che nessuno chiama è

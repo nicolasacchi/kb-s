@@ -301,10 +301,13 @@ mod tests {
             kind: "argomento",
             id: "arg_0123456789abcdef".into(),
         });
+        // Nota sul campo `state`, che **non c'e' piu'**: l'ha tolto kbs-store,
+        // perche' metterlo nel testo dell'errore rendeva l'errore stesso un
+        // oracolo di esistenza e di stato di pubblicazione. Il fatto che questo
+        // test non possa piu' scriverlo e' una difesa, non un adattamento.
         let non_visibile = ApiError::from(StoreError::NotReadable {
             person: kbs_core::PersonId::fixture(3),
             id: kbs_core::ArgumentId::from_rel_path("corsi/x/lezione-01.html"),
-            state: kbs_core::PublicationState::Bozza,
         });
         let assente = ApiError::Absent;
 
