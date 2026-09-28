@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>La soglia: quanti posti servono, e quale prezzo li copre</title>
+<meta name="kb-argument" content="esercizi/02-margine-sotto-soglia.html">
+<meta name="kb-course" content="ite-turismo-secondo-biennio">
+<meta name="kb-family" content="economia-aziendale">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="human">
+<meta name="kb-ancoraggio" content="derivato">
+</head>
+<body>
+<main>
+<h1 id="titolo">La soglia: quanti posti servono, e quale prezzo li copre</h1>
+<p class="riassunto">Il secondo oggetto esercizio dell'argomento 09: la stessa distinzione fra costo fisso e costo variabile, applicata alla domanda che segue — a partire da quale occupazione il conto torna positivo, e quale prezzo coprirebbe il costo a piena occupazione. La risposta non è un numero, ma due fasce fra quelle dichiarate.</p>
+
+<ul class="prerequisiti">
+<li data-prereq="argomenti/09-economia-aziendale.html">09 economia aziendale: il costo e il prezzo</li>
+<li data-prereq="esercizi/01-costo-fisso-e-variabile.html">esercizi 01: costo fisso e costo variabile</li>
+</ul>
+
+<section>
+<h2 id="la-domanda">La domanda, e perché la risposta non è un numero</h2>
+<p>Una struttura ha un costo fisso <em>F</em>, un costo variabile <em>v</em> per posto venduto, un prezzo <em>p</em> per posto venduto e <em>C</em> posti. Il conto del mese con <em>o</em> posti venduti è <strong>(p − v)·o − F</strong>. Da quella formula escono due domande, ed è questa la ragione per cui l'esercizio non chiede un numero: <strong>quanti posti occorrono perché il conto torni positivo</strong>, e <strong>quanto dovrebbe costare un posto perché il costo sia coperto anche a piena occupazione</strong>.</p>
+<p>Entrambe le risposte sono numeri, e sono numeri che si indovinano male: sono numeri che cambiano di tre ordini di grandezza da un'istanza all'altra mentre la struttura della domanda resta identica. Per questo l'esercizio chiede <strong>in quale fascia dichiarata cada ciascuno dei due numeri</strong>. La fascia è un insieme finito di risposte possibili, il confronto è meccanico, e la scelta fra le fasce dice che cosa hai capito: se hai capito, la fascia la trovi; se hai indovinato, hai 1 su 4 e 1 su 5.</p>
+<p>La seconda domanda è quella che rende l'esercizio utile e non aritmetico: <strong>il prezzo minimo non dipende dalla quantità venduta, ma dalla struttura</strong>. È <em>v</em> più <em>F</em> diviso per <em>C</em>: cioè il costo variabile più la parte di costo fisso che ogni posto deve assorbire. Abbassare il prezzo non cambia nessuno dei due termini, quindi non abbassa la soglia: sposta solo più posti a un prezzo che copre meno.</p>
+<p class="claim" data-claim="Il prezzo che copre il costo a piena occupazione è il costo variabile più il costo fisso diviso per i posti: non dipende da quanti posti si vendono, e quindi abbassare il prezzo non abbassa la soglia." data-claim-id="cl_e02_1" data-claim-span="span-e02-1" data-stato="supported" data-claim-emitter="teacher:person_0001"><span id="span-e02-1">Il prezzo che copre il costo a piena occupazione è <code>v + F/C</code>: il costo variabile più la parte di costo fisso che ciascun posto deve assorbire. Non dipende da quanti posti si vendono davvero, e per questo abbassare il prezzo non abbassa la soglia — sposta soltanto più posti venduti su un prezzo che ne copre meno.</span></p>
+<p class="claim-nota">Affermazione <code>cl_e02_1</code>: Il prezzo che copre il costo a piena occupazione è il costo variabile più il costo fisso diviso per i posti: non dipende da quanti posti si vendono, e quindi abbassare il prezzo non abbassa la soglia.</p>
+</section>
+
+<section>
+<h2 id="la-regola">La regola che produce l'atteso</h2>
+<ol class="passi">
+<li><strong>La soglia in occupazione.</strong> Il conto è positivo quando <code>(p − v)·o &gt; F</code>, cioè quando <code>o &gt; F/(p − v)</code>. Si prende il primo intero che soddisfa la disuguaglianza stretta e lo si colloca nella fascia dichiarata. Se quel numero è maggiore di <em>C</em>, la risposta è <code>mai</code>: il conto non torna positivo a nessuna occupazione che la struttura possa raggiungere, e la differenza fra le fasce è proprio questo caso.</li>
+<li><strong>La soglia in prezzo.</strong> Il prezzo che copre il costo a piena occupazione è <code>v + F/C</code>, e si colloca nella fascia di prezzo dichiarata.</li>
+<li><strong>Le fasce.</strong> Ogni fascia comprende il proprio estremo inferiore e non quello superiore: <code>fino-a-1249</code> vuol dire fino a 1 249 euro compreso, <code>1250-1499</code> vuol dire da 1 250 a 1 499, e così via. La stessa regola vale per le fasce di occupazione: <code>11-20</code> vuol dire da 11 a 20 posti venduti.</li>
+<li><strong>La forma.</strong> Un elemento per istanza, nell'ordine <code>fascia di prezzo:fascia di occupazione</code>. Le due fasce si calcolano con formule diverse e non si deducono l'una dall'altra: rispondere bene una e male l'altra è il risultato più probabile, ed è il segnale che distingue chi ha capito il costo fisso da chi ha capito solo la divisione.</li>
+</ol>
+<p><strong>Il caso in cui la regola non basta, dichiarato.</strong> Se <code>p ≤ v</code>, il prezzo non copre nemmeno il costo variabile e <code>F/(p − v)</code> non è un numero: l'esercizio non contiene istanze di questo tipo, perché l'atteso non sarebbe prodotto dalla regola e servirebbe un altro esercizio, non una regola piegata.</p>
+<p><strong>Il vincolo fra questo file e l'argomento.</strong> Le istanze <code>s1</code> e <code>s3</code> qui sono le stesse dell'argomento 09 e dell'esercizio 01, lette nella formula della soglia: i numeri non cambiano, cambia la domanda. Se l'argomento rivede i propri dati, questo file li rivede nello stesso momento.</p>
+</section>
+
+<section class="esercizi">
+<h2 id="verifica">L'esercizio</h2>
+<p>Tre istanze, la stessa formula e tre soglie diverse: una che si raggiunge a metà capacità, una che non si raggiunge mai, una che si raggiunge quasi all'ultimo posto.</p>
+
+<div class="esercizio" data-esercizio="ex_e02_1" data-famiglia="margine-soglia" data-checker="set">
+<p><strong>La soglia, in due numeri.</strong> Una struttura ha <em>C</em> posti, un costo fisso <em>F</em> al mese, un costo variabile <em>v</em> per posto venduto e un prezzo <em>p</em> per posto venduto. Per ciascuna istanza indica <strong>in quale fascia di prezzo cade il prezzo che coprirebbe il costo a piena occupazione</strong> e <strong>in quale fascia di occupazione cade il numero di posti venduti da cui in poi il conto è positivo</strong>. Le fasce sono quelle dichiarate sotto; se la soglia non si raggiunge nemmeno vendendo tutti i posti, la risposta di occupazione è <code>mai</code>.</p>
+<p class="fasce">Fasce di prezzo: <code>fino-a-1249</code> · <code>1250-1499</code> · <code>1500-1749</code> · <code>1750-e-oltre</code>. Fasce di occupazione: <code>10-o-meno</code> · <code>11-20</code> · <code>21-30</code> · <code>31-40</code> · <code>mai</code>.</p>
+<p class="istanza" data-seed="s1">istanza s1 · residence, 40 posti · C 40 · F 39 000 · v 225 per posto · p 1 800 per posto</p>
+<p class="istanza" data-seed="s2">istanza s2 · pensione, 40 posti · C 40 · F 15 000 · v 875 per posto · p 1 000 per posto</p>
+<p class="istanza" data-seed="s3">istanza s3 · albergo, 40 posti · C 40 · F 44 000 · v 625 per posto · p 1 800 per posto</p>
+<p class="atteso" data-atteso="s1:fino-a-1249:21-30, s2:1250-1499:mai, s3:1500-1749:31-40">Risposta attesa: tre elementi, uno per istanza, nell'ordine s1, s2, s3 — l'ordine non conta. Ogni elemento è <code>fascia di prezzo:fascia di occupazione</code>. Il valore dichiarato qui è quello che la regola del file produce applicata ai numeri dell'esercizio: se la regola smette di produrlo, l'esercizio è rotto e va rifatto, non corretto a mano.</p>
+<p class="note">Il confronto è meccanico e non tollera abbreviazioni né spazi superflui: la forma va dichiarata prima e non dopo. Il software non controlla la frase con cui lo studente spiega quale dei due termini della soglia abbia deciso, e lo dichiara invece di aggirarlo.</p>
+</div>
+
+<p><strong>La regola applicata ai numeri, riletta una volta a voce.</strong> In <code>s1</code> il prezzo che copre il costo a piena occupazione è <code>225 + 39 000/40 = 1 200</code> euro e la soglia in occupazione è <code>39 000/1 575 = 24,76</code>, cioè il primo intero è 25. In <code>s2</code> il prezzo che copre il costo è <code>875 + 15 000/40 = 1 250</code> euro e la soglia sarebbe <code>15 000/125 = 120</code> posti, che una capacità di 40 non raggiunge: da qui <code>mai</code>. In <code>s3</code> il prezzo che copre il costo è <code>625 + 44 000/40 = 1 725</code> euro e la soglia è <code>44 000/1 175 = 37,45</code>, cioè 38 posti. <strong>Le due fasce di ogni istanza vengono da due divisioni diverse</strong>, ed è il motivo per cui l'esercizio le chiede entrambe: sbagliarne una non porta a sbagliare l'altra, e il risultato di una classe dice quale delle due formule sia stata capita.</p>
+<p><strong>Le tre istanze, e perché non hanno la stessa risposta.</strong> In <code>s1</code> la differenza fra prezzo e costo variabile è 1 575 euro a posto, e i 39 000 di costo fisso si recuperano con 25 posti: la soglia cade nel mezzo della capacità. In <code>s2</code> la differenza è di soli 125 euro a posto, e servirebbero 120 posti per coprire 15 000 di costo fisso: la capacità è 40, quindi <code>mai</code>, e il conto è negativo anche a piena occupazione. In <code>s3</code> la differenza è 1 175 euro e il costo fisso è 44 000: servono 38 posti dei 40 disponibili, e il conto a piena occupazione è positivo ma per poco (3 000 euro). <strong>Tre istanze, tre risposte diverse</strong>, e la seconda mostra che una soglia irraggiungibile non è un caso teorico: è la pensione che chiude.</p>
+</section>
+
+<section>
+<h2 id="limite">Che cosa il software non sa fare, e che cosa nessuno controlla</h2>
+<p><strong>Nessuno ricalcola l'atteso dai dati.</strong> La pipeline legge l'atteso dichiarato e lo confronta con la risposta: non applica <code>v + F/C</code> e <code>F/(p − v)</code> ai numeri dell'esercizio. La coerenza fra regola e valore dichiarato la verifica quindi un lettore, ed è il motivo per cui il file dichiara le formule per esteso e le riapplica per iscritto a ciascuna istanza: un atteso che non si può ricontrollare è un numero che nessuno correggerà.</p>
+<p><strong>Il confronto è fra stringhe e non fra numeri.</strong> Il verificatore non calcola, non arrotonda e non tollera: confronta la fascia dichiarata con quella scritta dallo studente. Uno studente che ha calcolato 1 200 e ha riscritto la fascia sbagliata ha sbagliato lo stesso di chi ha sbagliato il calcolo, ed è una scelta dichiarata, non un difetto.</p>
+<p><strong>Non controlla il perché.</strong> Chi scrive <code>fino-a-1249:21-30</code> senza aver capito la differenza fra costo fisso e costo variabile ottiene lo stesso verdetto di chi l'ha capita. La risposta a caso ha probabilità 1 su 20 per istanza: bassa, non nulla, e non calcolabile a tavolino sul compito singolo.</p>
+<p><strong>Non sa se la soglia sia quella giusta da guardare.</strong> La formula vale per una struttura che vende posti a prezzo costante nello stesso mese. Non modella stagionalità, promozioni, costi che cambiano con la stagione, né il fatto che la domanda dipende dal prezzo: qui la domanda è data e il prezzo è dato, e sono due numeri che nella realtà si muovono insieme. Quella è la parte che l'argomento 09 dichiara come limite e che nessun esercizio con checker deterministico può coprire.</p>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: la risposta non è un numero, sono due fasce per istanza — la fascia di prezzo in cui cade il prezzo che copre il costo a piena occupazione, e la fascia di occupazione in cui cade il numero di posti da cui il conto è positivo. Le fasce sono dichiarate nell'esercizio e i loro estremi sono dichiarati: una fascia comprende il proprio estremo inferiore e non quello superiore. Il conto del mese è (p − v)·o − F.
+
+## PREREQUISITI
+09 economia aziendale: costo e prezzo. Esercizio 01: la classificazione delle voci in fisso e variabile, che qui è già data dalla formula.
+
+## OBIETTIVI
+Applicare la formula del margine a un'istanza nuova. Dire quanti posti occorrono perché il conto torni positivo. Dire quale prezzo coprirebbe il costo a piena occupazione. Riconoscere il caso in cui la soglia non è raggiungibile e dire perché in quel caso la leva non è l'occupazione.
+
+## SCALA
+Livello 4: in un'istanza nuova, con costo fisso grande e margine unitario piccolo, sa dire che la soglia non è raggiungibile e nominare la leva che rimane. Livello 3: colloca entrambe le fasce corrette in un'istanza già impostata. Livello 2: distingue la soglia in prezzo dalla soglia in occupazione e sa dire che sono due calcoli diversi. Livello 1: sa che il conto del mese è la differenza fra ricavo e costo.
+
+## EQUIVOCI
+Il primo: le due fasce sono la stessa domanda. Una è prezzo che copre il costo a piena occupazione, l'altra è occupazione da cui il conto torna positivo: si calcolano con formule diverse e sbagliare una non porta a sbagliare l'altra. Il secondo: la soglia si abbassa tagliando il prezzo. Il costo fisso non si muove, quindi la soglia in occupazione resta e quella in prezzo resta. Il terzo: la fascia sbagliata è «quasi giusta». Le fasce sono adiacenti e gli estremi contano.
+
+## ESEMPIO-LAVORATO
+Il residence dell'argomento 09: 40 posti, costo fisso 39 000, costo variabile 225 a posto, prezzo 1 800 a posto. Prezzo che copre il costo a piena occupazione: 225 + 39 000/40 = 225 + 975 = 1 200 euro, che cade in «fino-a-1249». Soglia in occupazione: 39 000/1 575 = 24,76, quindi il primo intero che rende positivo il conto è 25, che cade in «21-30». Verifica: a 25 posti il conto vale 1 575 per 25 meno 39 000 = 375 euro, positivo; a 24 vale -1 200, negativo. A metà occupazione, con 20 posti, il conto è -7 500: la perdita nasce dal fisso, non dal prezzo.
+
+## VERIFICA
+Tre istanze, la stessa formula, due fasce per ciascuna, in sei token confrontati meccanicamente come insieme. L'atteso è dichiarato nel file come applicazione della regola ai numeri dichiarati, e la regola è riapplicata per iscritto a tutte e tre le istanze, perché nessuno la ricalcola automaticamente: se la regola smette di produrre l'atteso, l'esercizio è rotto e va rifatto. Il correttore confronta stringhe e non controlla la motivazione.
+
+## LIMITE
+Non ricalcola l'atteso, non interpreta le risposte e non controlla il perché. Non modella la stagionalità né l'effetto del prezzo sulla domanda: qui domanda e prezzo sono dati e non si muovono, e questa è una semplificazione dichiarata. Una risposta a caso ha probabilità 1 su 20 per istanza.
+</template>
+</body>
+</html>

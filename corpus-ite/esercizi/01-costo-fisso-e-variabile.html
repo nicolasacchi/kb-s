@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Costo fisso e costo variabile: quattro voci, due occupazioni</title>
+<meta name="kb-argument" content="esercizi/01-costo-fisso-e-variabile.html">
+<meta name="kb-course" content="ite-turismo-secondo-biennio">
+<meta name="kb-family" content="economia-aziendale">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="human">
+<meta name="kb-ancoraggio" content="derivato">
+</head>
+<body>
+<main>
+<h1 id="titolo">Costo fisso e costo variabile: quattro voci, due occupazioni</h1>
+<p class="riassunto">L'esercizio dell'argomento 09, come oggetto a se': quattro voci di costo in tre strutture diverse, e per ognuna la domanda che non ha una risposta sola — che cosa è fisso, e quale dei due numeri non si tocca con una decisione commerciale.</p>
+
+<ul class="prerequisiti">
+<li data-prereq="argomenti/09-economia-aziendale.html">09 economia aziendale: il costo e il prezzo</li>
+<li data-prereq="argomenti/08-la-struttura.html">08 la struttura: un sito, un pacchetto, un intermediario</li>
+</ul>
+
+<section>
+<h2 id="la-domanda">La domanda, e perché non ha una risposta sola</h2>
+<p>Una voce di costo è <strong>fissa</strong> quando il suo importo non cambia al variare dei posti venduti, e <strong>variabile</strong> quando cambia con essi. La domanda «è fissa?» sembra una domanda da definizione, e non lo è: <strong>è una domanda sui numeri che l'esercizio già dà</strong>, e la si risponde confrontando, voce per voce, l'importo a piena occupazione con l'importo a metà occupazione. Chi risponde «è un canone, quindi è fisso» sta rispondendo al nome della voce, non ai numeri, e in due delle tre istanze sbaglia.</p>
+<p>La seconda metà della domanda è quella dell'argomento 09 e non ha una risposta unica per costruzione: <strong>quale dei due numeri — costo o prezzo — è quello che in quella situazione non si modifica con una decisione commerciale</strong>. La risposta cambia da un'istanza all'altra, e la regola che la produce è dichiarata qui sotto, insieme ai dati.</p>
+<p>Perché le risposte non si possano indovinare con l'intuizione: gli stessi nomi brevi (<code>personale</code>, <code>energia</code>, <code>consumi</code>) compaiono in istanze diverse con classificazioni diverse, e i due componenti della risposta sono indipendenti fra loro. La combinazione casuale di una sola istanza ha probabilità <strong>1 su 32</strong>: bassa, e non nulla — ed è per questo che la soglia del corso si misura sulla classe e non sul compito singolo.</p>
+<p class="claim" data-claim="Che cosa sia fisso e che cosa sia variabile si decide confrontando i due importi che l'esercizio dichiara, non dal nome della voce di costo." data-claim-id="cl_e01_1" data-claim-span="span-e01-1" data-stato="supported" data-claim-emitter="teacher:person_0001"><span id="span-e01-1">Una voce è fissa quando il suo importo non cambia al variare dei posti venduti, e variabile quando cambia con essi: quindi la domanda si risponde confrontando, voce per voce, l'importo a piena occupazione e quello a metà occupazione. Il nome della voce non dice niente — <code>energia</code> è fissa in un'istanza e variabile in un'altra, e lo decide il numero.</span></p>
+<p class="claim-nota">Affermazione <code>cl_e01_1</code>: Che cosa sia fisso e che cosa sia variabile si decide confrontando i due importi che l'esercizio dichiara, non dal nome della voce di costo.</p>
+</section>
+
+<section>
+<h2 id="la-regola">La regola che produce l'atteso</h2>
+<p>La regola è dichiarata perché l'atteso sia ispezionabile: chi corregge deve poter ricalcolarlo dalla regola e dai dati, senza fidarsi del numero scritto.</p>
+<ol class="passi">
+<li><strong>La classificazione.</strong> Per ogni voce si legge la coppia di importi <code>alla piena occupazione / a metà occupazione</code>. Due importi uguali danno <code>fisso</code>; due importi diversi danno <code>variabile</code>. Il confronto è fra i due numeri della stessa voce, mai fra voci diverse.</li>
+<li><strong>Il blocco.</strong> <code>blocco=prezzo</code> se e solo se il ricavo a piena occupazione è <em>minore</em> del costo totale; <code>blocco=costo</code> in tutti gli altri casi. La ragione della regola: un conto che è negativo anche al massimo teorico non è riparabile dall'occupazione, e l'unica leva commerciale rimasta è il prezzo; quando il conto è positivo a piena occupazione, la perdita a metà nasce dalla parte che l'occupazione non muove, cioè il costo fisso.</li>
+<li><strong>La forma.</strong> Un elemento per istanza, nell'ordine delle voci come sono elencate nell'esercizio, seguito da <code>blocco=costo</code> oppure <code>blocco=prezzo</code>. Le voci si indicano con il nome breve dichiarato nell'esercizio, non con la voce di bilancio per esteso.</li>
+</ol>
+<p><strong>La notazione dei dati.</strong> Una coppia <code>24 000/24 000</code> vuol dire: la voce costa <strong>24 000 euro a 40 posti venduti</strong> e <strong>24 000 euro a 20 posti venduti</strong>. Tutte e tre le istanze hanno 40 posti e i due importi di ogni voce sono rispettivamente alla piena e a metà occupazione. Il ricavo dichiarato è quello <em>a piena occupazione</em>; a metà è la metà, perché il prezzo per posto è lo stesso nelle due condizioni.</p>
+<p><strong>Il vincolo fra questo file e l'argomento.</strong> Questo oggetto esercizio e la sezione di verifica dell'argomento 09 devono dire la stessa cosa: stesso ragionamento, stesse istanze, stesso atteso. Se uno dei due cambia, cambia anche l'altro, e non si lascia il vecchio testo a fare da seconda verità. L'identificativo dell'esercizio qui è <code>ex_e01_1</code> e non quello che l'argomento porta nella propria sezione: due file che si dichiarano lo stesso oggetto con lo stesso identificativo sono due copie, e le copie divergono.</p>
+</section>
+
+<section class="esercizi">
+<h2 id="verifica">L'esercizio</h2>
+<p>Tre istanze, la stessa tabella dei costi e istanze diverse: la risposta non si può imparare a memoria, e la classificazione di una voce che si conosce non vale per le altre.</p>
+
+<div class="esercizio" data-esercizio="ex_e01_1" data-famiglia="costo-fisso-e-variabile" data-checker="set">
+<p><strong>Le quattro voci, in tre strutture.</strong> Ogni voce costa un importo a piena occupazione (40 posti venduti) e un importo a metà occupazione (20 posti venduti), nell'ordine <code>importo alla piena / importo a metà</code>. Per ciascuna istanza indica <strong>la classificazione di ogni voce</strong> (<code>fisso</code> oppure <code>variabile</code>, con il nome breve della voce) e <strong>quale dei due numeri è bloccato</strong>, cioè quale non si modifica con una decisione commerciale: <code>costo</code> oppure <code>prezzo</code>.</p>
+<p class="istanza" data-seed="s1">istanza s1 · residence, 40 posti · personale 24 000/24 000 · energia 7 000/7 000 · assicurazioni 8 000/8 000 · pulizie 9 000/4 500 · ricavo a piena 72 000</p>
+<p class="istanza" data-seed="s2">istanza s2 · pensione, 40 posti · personale 12 000/12 000 · utenze 3 000/3 000 · consumi 20 000/10 000 · lavanderia 15 000/7 500 · ricavo a piena 40 000</p>
+<p class="istanza" data-seed="s3">istanza s3 · albergo, 40 posti · personale 18 000/18 000 · canone 12 000/12 000 · energia 6 000/3 000 · consumi 9 000/4 500 · ricavo a piena 60 000</p>
+<p class="atteso" data-atteso="s1:personale=fisso;energia=fisso;assicurazioni=fisso;pulizie=variabile;blocco=costo, s2:personale=fisso;utenze=fisso;consumi=variabile;lavanderia=variabile;blocco=prezzo, s3:personale=fisso;canone=fisso;energia=variabile;consumi=variabile;blocco=costo">Risposta attesa: tre elementi, uno per istanza, nell'ordine s1, s2, s3 — l'ordine non conta. Ogni elemento è la classificazione delle quattro voci nell'ordine dell'esercizio, seguita da <code>blocco=costo</code> oppure <code>blocco=prezzo</code>. Il valore dichiarato qui è quello che la regola del file produce applicata ai numeri dell'esercizio: se la regola smette di produrlo, l'esercizio è rotto e va rifatto, non corretto a mano.</p>
+<p class="note">Il confronto è meccanico e non tollera abbreviazioni né spazi superflui dentro un elemento: la forma va dichiarata prima e non dopo, ed è per questo che è dichiarata in questo esercizio. Il software non controlla la frase con cui lo studente spiega la scelta, e lo dichiara: la parte che sa valutare è la classificazione e il blocco, non il perché.</p>
+</div>
+
+<p><strong>Che cosa distingue le tre istanze, e perché l'esercizio non è un quiz.</strong> In <code>s1</code> il conto è positivo a piena occupazione (72 000 contro 48 000) e negativo a metà (36 000 contro 43 500): la perdita nasce dalla parte fissa, e quindi il numero bloccato è il <strong>costo</strong>. In <code>s2</code> il conto è negativo <em>anche a piena occupazione</em> (40 000 contro 50 000): nessuna occupazione lo ripara, e l'unica leva rimasta è il <strong>prezzo</strong>, che è il token opposto. In <code>s3</code> il conto è positivo a piena (60 000 contro 45 000) e negativo a metà (30 000 contro 37 500): di nuovo il <strong>costo</strong>, ma con la classificazione opposta su <code>energia</code>, che qui è <code>variabile</code> mentre in <code>s1</code> è <code>fisso</code>. <strong>Tre istanze, due token di blocco diversi e una classificazione che si ribella al nome della voce</strong>: chi ha capito guarda i numeri, chi ha imparato a memoria sbaglia in <code>s3</code>.</p>
+</section>
+
+<section>
+<h2 id="limite">Che cosa il software non sa fare, e che cosa nessuno controlla</h2>
+<p><strong>Nessuno ricalcola l'atteso dai dati.</strong> La pipeline legge l'atteso dichiarato nell'attributo <code>data-atteso</code> e lo confronta con la risposta dello studente: non applica la regola di questa pagina ai numeri dell'esercizio. Quindi la coerenza fra regola e valore dichiarato la verifica <strong>un lettore</strong>, non il programma, ed è il motivo per cui la regola è scritta per esteso invece di essere lasciata implicita: senza di essa l'atteso sarebbe un numero che nessuno può ricontrollare.</p>
+<p><strong>Il confronto è di stringhe, non di significato.</strong> Il verificatore separa gli elementi su virgola, pota gli spazi laterali e confronta. Uno spazio interno sbagliato, una voce scritta per esteso invece che con il nome breve, una lettera maiuscola fuori posto: sono risposte sbagliate. Non è una scelta pedagogica, è il costo di un verificatore che non interpreta e non giudica.</p>
+<p><strong>Non controlla il perché.</strong> Lo studente che scrive i cinque token corretti senza aver capito la differenza fra costo fisso e costo variabile ottiene esattamente lo stesso verdetto di chi l'ha capita. Una risposta data a caso ha probabilità bassa e non nulla, e non è un <code>1/32</code> calcolabile a tavolino: va misurata sulla classe.</p>
+<p><strong>Non sa altro del materiale.</strong> Non conosce il bilancio, non sa che cosa sia un ammortamento come tecnica, non sa se le cifre di queste tre strutture corrispondono a strutture reali, e non sa nulla della destinazione in cui stanno: la parte di geografia che spiega perché un territorio abbassa il prezzo è l'argomento 10, e l'esercizio 04 è il suo oggetto.</p>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: una voce di costo è fissa se il suo importo non cambia quando cambiano i posti venduti, e variabile se cambia con essi. Il nome della voce non decide niente: in questo esercizio la stessa voce, energia, è fissa in un'istanza e variabile in un'altra, e lo decide la coppia di numeri. La risposta non è un numero: sono cinque token per istanza, quattro classificazioni e il blocco.
+
+## PREREQUISITI
+09 economia aziendale: costo e prezzo. 08 la struttura. Serve la distinzione costo/prezzo e l'idea di struttura che eroga il servizio.
+
+## OBIETTIVI
+Classificare una voce di costo come fissa o variabile confrontando due importi dichiarati. Dire quale dei due numeri, costo o prezzo, non si modifica con una decisione commerciale in una situazione data. Riconoscere che la risposta cambia da un'istanza all'altra a parità di ragionamento.
+
+## SCALA
+Livello 4: in un'istanza nuova, con nomi di voce che traggono in inganno, classifica tutte le voci e nomina il blocco, e sa dire perché la classificazione non segue il nome. Livello 3: classifica le quattro voci di un'istanza e nomina il blocco corretti. Livello 2: distingue una voce fissa da una variabile in un caso già classificato. Livello 1: distingue la voce «costi» dalla voce «ricavi».
+
+## EQUIVOCI
+Il primo: la voce fissa è quella che suona fissa — canone, assicurazioni, personale sono quasi sempre fissi, ma in questo esercizio energia è fissa in una istanza e variabile in un'altra, e la coppia di importi decide. Il secondo: il blocco è sempre il costo. In s2 il conto è negativo anche a piena occupazione, quindi l'unica leva commerciale rimasta è il prezzo. Il terzo: la classificazione si deduce dal fatto che la voce «riguarda gli ospiti». Le coppie di numeri sono l'unica prova.
+
+## ESEMPIO-LAVORATO
+Il residence dell'argomento 09: 40 posti, costi 48 000 euro al mese di cui 39 000 fissi e 9 000 variabili, ricavo 72 000 a piena occupazione e 36 000 a metà. Le voci: personale 24 000/24 000, energia 7 000/7 000, assicurazioni 8 000/8 000, pulizie e consumabili 9 000/4 500. Le prime tre sono fisse perché i due importi coincidono, l'ultima è variabile perché l'importo scende con i posti venduti. A metà occupazione il costo non è 24 000 ma 43 500, e il margine è -7 500: il conto è positivo a piena (72 000 contro 48 000) e negativo a metà, quindi il blocco è il costo, non il prezzo.
+
+## VERIFICA
+Tre istanze a struttura identica e risposta diversa: quattro classificazioni più il blocco per ciascuna, in cinque token. L'atteso è dichiarato nel file come applicazione della regola ai numeri, non come numero nudo, e la regola è dichiarata per intero perché nessuno la ricalcola automaticamente: se la regola smette di produrre l'atteso, l'esercizio è rotto. Il correttore confronta cinque stringhe per istanza e non controlla la motivazione.
+
+## LIMITE
+Non ricalcola l'atteso dai dati: la coerenza fra regola e valore la verifica un lettore. Non interpreta le risposte, quindi la forma va dichiarata e rispettata. Non controlla il perché della scelta, e una risposta a caso ha probabilità bassa e non nulla. Non conosce bilancio, ammortamenti né la geografia del territorio.
+</template>
+</body>
+</html>

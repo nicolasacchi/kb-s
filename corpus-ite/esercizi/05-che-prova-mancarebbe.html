@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Che prova manca: tre parti, e che cosa il software non sa rappresentare</title>
+<meta name="kb-argument" content="esercizi/05-che-prova-mancarebbe.html">
+<meta name="kb-course" content="ite-turismo-secondo-biennio">
+<meta name="kb-family" content="matematica">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="human">
+<meta name="kb-ancoraggio" content="scelta-didattica">
+</head>
+<body>
+<main>
+<h1 id="titolo">Che prova manca: tre parti, e che cosa il software non sa rappresentare</h1>
+<p class="riassunto">L'esercizio dell'argomento 12 come oggetto a se': la stessa barca dell'esercizio 03, tre domande in sequenza invece di tre istanze indipendenti, e la parte c che dipende dalla risposta data alla parte a. Un esercizio con delle parti è l'unica forma in cui si verifica un ragionamento e non una sua conclusione — ed è anche la forma che il modello di dati non sa rappresentare.</p>
+
+<ul class="prerequisiti">
+<li data-prereq="argomenti/12-decisione-sotto-vincolo.html">12 decisione sotto vincolo: quando «dimostrato» è misurabile</li>
+<li data-prereq="argomenti/11-matematica.html">11 matematica: la domanda di ottimizzazione sotto un vincolo</li>
+<li data-prereq="esercizi/03-ripartizione-sotto-vincolo.html">esercizi 03: ripartizione sotto vincolo</li>
+</ul>
+
+<section>
+<h2 id="la-domanda">La domanda, e perché qui la risposta è un ragionamento</h2>
+<p>Un corso arriva in fondo all'anno con poche ore e molti argomenti. Alcuni si possono verificare meccanicamente, altri no. <strong>Su quali ore spendi, e come sai che hai scelto bene?</strong> La risposta che l'argomento deve produrre è una soglia che <strong>non è stata scritta prima</strong>: un capitolo ha una soglia naturale quando c'è un esercizio la cui risposta è determinata dai dati, e non la ha quando la domanda ha più risposte giuste e serve qualcuno che le legga.</p>
+<p>L'esercizio misura proprio questo, e lo fa chiedendo <strong>che cosa succede quando il vincolo si stringe</strong>. Non chiede la ripartizione ottima — quella l'hai già vista nell'esercizio 03 e la sai fare in trenta secondi. Chiede <strong>se la risposta cambia e come si sposta</strong>, cioè non una conclusione ma un passaggio di ragionamento: la terza parte è illegibile senza la prima, perché parla della soluzione che hai trovato nella prima.</p>
+<p>Perché non si possa indovinare: la parte c ha due forme di risposta (<code>no</code> o <code>si</code>) e <code>no</code> è la risposta che si indovina sbagliata, perché «di solito la soluzione non cambia» è l'aspettativa giusta e qui è falsa. <strong>Sbagliare la parte a e azzeccare la c non viene visto</strong>, ed è esattamente il difetto che questo esercizio dichiara e che nessun correttore può segnalare.</p>
+<p class="claim" data-claim="Un esercizio con delle parti verifica un ragionamento e non una sua conclusione, e il modello di dati non ha un campo che sia una parte: registrate come esercizi distinti, le parti perdono il vincolo che le tiene insieme." data-claim-id="cl_e05_1" data-claim-span="span-e05-1" data-stato="supported" data-claim-emitter="teacher:person_0001"><span id="span-e05-1">Nel modello di dati l'esercizio ha un identificativo, un corso, un argomento, una famiglia, una versione del generatore, il testo, il verificatore e gli autori; l'istanza ha l'esercizio, il seme, il testo reso, la risposta attesa e i parametri. <strong>Non esiste un campo che sia una parte, un passo, un sottopasso o un ordine</strong>, e non c'è un campo che dica che una parte dipende dalla risposta di un'altra: registrate come esercizi distinti, le parti perdono proprio il vincolo che le tiene insieme.</span></p>
+<p class="claim-nota">Affermazione <code>cl_e05_1</code>: Un esercizio con delle parti verifica un ragionamento e non una sua conclusione, e il modello di dati non ha un campo che sia una parte: registrate come esercizi distinti, le parti perdono il vincolo che le tiene insieme.</p>
+</section>
+
+<section>
+<h2 id="le-parti">Le tre parti, e perché le parti si perdono</h2>
+<p><strong>L'esercizio ha tre parti e lo dichiara, perché è la parte dell'esercizio che il software non sa rappresentare.</strong> Le tre parti non sono tre esercizi indipendenti accostati: ciascuna ha dati propri e una forma di risposta propria, e sono legate da una dipendenza che si può scrivere ma non registrare.</p>
+<ul class="parti">
+<li><strong>Parte a.</strong> Con trenta posti e dodici guide, la ripartizione che massimizza il ricavo totale. È il punto di partenza: tutto il resto dell'esercizio si riferisce a questa soluzione.</li>
+<li><strong>Parte b.</strong> Nella soluzione trovata nella parte a, quale vincolo è attivo. La domanda è <em>sulla soluzione dello studente</em>, non sui dati: la risposta attesa è la stessa soluzione che nella parte a era corretta, e le due risposte sono incoerenti se la prima è sbagliata.</li>
+<li><strong>Parte c.</strong> Nella stessa istanza, togli una guida. La ripartizione ottima cambia? Rispondi <code>no</code> con la ripartizione, oppure <code>si</code> con la nuova ripartizione. <strong>La parte c è illegibile senza la parte a</strong>, perché chiede che cosa succede alla risposta che hai appena trovato.</li>
+</ul>
+<p><strong>Che cosa si perde, e dove.</strong> Se le tre parti venissero registrate come tre esercizi distinti, l'atteso della parte b verrebbe calcolato dal generatore a partire dai dati — cioè dalla soluzione corretta — e non dalla risposta che lo studente ha dato alla parte a. Uno studente che sbaglia la a e azzecca la b per induzione o per copia ottiene un punteggio che non distingue le due cose, e il registro non se ne accorge. <strong>È il motivo per cui l'esercizio resta dichiarato qui dentro, dove un docente lo legge, invece di essere consegnato al software come se il software lo capisse</strong>.</p>
+<p><strong>Il vincolo fra questo file e l'argomento.</strong> Questo oggetto esercizio e la sezione «Come si verifica che l'hai capito» dell'argomento 12 devono dire la stessa cosa: stesse parti, stesso atteso. Se uno dei due cambia, cambia anche l'altro. L'identificativo qui è <code>ex_e05_1</code> e non quello che l'argomento porta nella propria sezione: due file che si dichiarano lo stesso oggetto con lo stesso identificativo sono due copie, e le copie divergono.</p>
+</section>
+
+<section>
+<h2 id="la-regola">La regola che produce l'atteso</h2>
+<ol class="passi">
+<li><strong>Variabili e vincoli.</strong> <em>x</em> gruppi di A e <em>y</em> gruppi di B, interi non negativi; A occupa 3 posti e rende 600 euro, B ne occupa 2 e rende 450. Vincoli: <code>3x + 2y ≤ C</code> e <code>x + y ≤ G</code>. Obiettivo: massimizzare <code>600x + 450y</code>, cioè il ricavo totale e non quello per posto.</li>
+<li><strong>Parte a.</strong> L'ottimo si trova ai vertici della regione ammissibile, enumerando: origine, intersezione dei due vincoli quando esiste, intersezioni con gli assi. Si scrive la ripartizione nella forma <code>xA+yB</code>.</li>
+<li><strong>Parte b.</strong> <code>posti</code> se <code>3x + 2y = C</code>, <code>guide</code> se <code>x + y = G</code>, <code>entrambi</code> se le due uguaglianze valgono insieme. La risposta si riferisce alla soluzione della parte a, e per questo le due parti non si possono registrare separate senza perdere il legame.</li>
+<li><strong>Parte c.</strong> Si risolve di nuovo con <em>G</em> diminuito di uno e si confronta l'ottimo con quello della parte a. La risposta è <code>no</code> se la ripartizione ottima non cambia, <code>si</code> se cambia, e in questo caso va data anche la nuova ripartizione. <strong>La regola non prevede il caso «non lo so»</strong>: o la ripartizione cambia e la si scrive, o non cambia e si risponde <code>no</code> con la ripartizione che era già quella ottima.</li>
+<li><strong>La forma.</strong> Tre elementi, uno per parte, nell'ordine a, b, c — l'ordine non conta. Ogni elemento è <code>parte:risposta</code>, e la parte c porta due componenti separati da due punti: <code>si</code> o <code>no</code> e la ripartizione.</li>
+</ol>
+<p><strong>La regola applicata ai numeri, riletta parte per parte.</strong> Nella parte a, con <em>C</em> = 30 e <em>G</em> = 12, i vertici sono <code>(0,0)</code>, <code>(6,6)</code> e <code>(0,12)</code>, perché <code>(12,0)</code> non è ammissibile: dodici gruppi da tre posti ne chiederebbero trentasei. I ricavi sono 0, <strong>6 300</strong> e 5 400, e vince <code>6A+6B</code>. Nella parte b, <code>3·6 + 2·6 = 30 = C</code> e <code>6 + 6 = 12 = G</code>: le due uguaglianze valgono insieme, quindi <code>entrambi</code>. Nella parte c, con <em>G</em> = 11 il vertice misto non è più ammissibile — dodici gruppi non si possono fare con undici guide — e l'ottimo si sposta su <code>(8,3)</code>: ventiquattro posti più sei, undici gruppi, e un ricavo di <strong>6 150</strong> euro contro i 6 300 della parte a. La risposta cambia dunque, e la nuova ripartizione è <code>8A+3B</code>. <strong>Meno una guida cancella il vertice misto e fa perdere 150 euro di ricavo</strong>: è la stessa domanda dell'esercizio 03, portata sulla parte che ne era il seguito.</p>
+</section>
+
+<section class="esercizi">
+<h2 id="verifica">L'esercizio</h2>
+<p>Un esercizio, tre parti, tre risposte. La terza non si può scrivere senza la prima, ed è per questo che l'esercizio ha delle parti e gli altri tre del percorso non le hanno.</p>
+
+<div class="esercizio" data-esercizio="ex_e05_1" data-famiglia="decisione-sotto-vincolo" data-checker="set">
+<p><strong>La stessa barca, tre domande in sequenza.</strong> A occupa <strong>3 posti</strong> per gruppo e rende <strong>600 euro</strong>; B ne occupa <strong>2</strong> e rende <strong>450</strong>. Ci sono <em>G</em> guide, una per gruppo, e una guida non può seguire due gruppi.</p>
+<p class="parte" data-parte="a" data-seed="p1"><strong>Parte a.</strong> Con <em>C</em> = 30 posti e <em>G</em> = 12 guide, indica quanti gruppi di A e quanti di B massimizzano il ricavo totale.</p>
+<p class="parte" data-parte="b" data-seed="p2"><strong>Parte b.</strong> Nella soluzione che hai trovato nella parte a, quale vincolo è attivo: <code>posti</code>, <code>guide</code> o <code>entrambi</code>?</p>
+<p class="parte" data-parte="c" data-seed="p3"><strong>Parte c.</strong> Nella stessa istanza, togli una guida (<em>G</em> = 11). La ripartizione ottima cambia? Rispondi <code>no</code> con la ripartizione, oppure <code>si</code> con la nuova ripartizione.</p>
+<p class="atteso" data-atteso="p1:6A+6B, p2:entrambi, p3:si:8A+3B">Risposta attesa: tre elementi, uno per parte, nell'ordine a, b, c — l'ordine non conta. La parte b si risponde sulla soluzione della parte a e la parte c non si può rispondere senza la a, quindi le tre risposte sono incoerenti fra loro se la prima è sbagliata. Il valore dichiarato qui è quello che la regola del file produce applicata ai numeri dell'esercizio: se la regola smette di produrlo, l'esercizio è rotto e va rifatto, non corretto a mano.</p>
+<p class="note">La parte c dipende dalla risposta data alla parte a: non si può rispondere alla c senza aver risolto la a, e questo vincolo è dichiarato qui perché il software non lo sa rappresentare. Se le tre parti venissero registrate come tre esercizi distinti, l'atteso della b sarebbe calcolato dai dati e non dalla risposta dello studente, e sbagliare la a azzeccando la b non sarebbe visto: è la ragione per cui l'esercizio è dichiarato per intero in questo file.</p>
+</div>
+
+<p><strong>Che cosa l'esercizio misura, e che cosa finge di misurare.</strong> Misura se lo studente sa che cosa succede quando il vincolo che scadeva per primo smette di scadere: in <code>p1</code> le guide e i posti finivano nello stesso punto, e togliere una guida cancella quel vertice e sposta l'ottimo su una combinazione con gruppi grandi. Finge di misurare due cose che non misura: la motivazione della scelta e la coerenza interna fra le tre risposte. Uno studente che scrive <code>p1</code> sbagliato, <code>p2</code> giusto per induzione e <code>p3</code> giusto per costruzione ottiene tre risposte che il registro conta come tre risposte, e nessuno degli strumenti qui distingue quel compito da uno in cui il ragionamento c'è.</p>
+</section>
+
+<section>
+<h2 id="limite">Che cosa il software non sa fare, e che cosa nessuno controlla</h2>
+<p><strong>Non sa rappresentare una parte.</strong> Nel modello di dati l'esercizio ha un identificativo, un corso, un argomento, una famiglia, una versione del generatore, il testo, il verificatore e gli autori; l'istanza ha l'esercizio, il seme, il testo reso, la risposta attesa e i parametri. <strong>Non c'è un campo che sia una parte, un passo, un sottopasso o un ordine, e non c'è un campo che dica che una parte dipende dalla risposta di un'altra.</strong> Le tre parti qui sono tre righe di testo dentro un esercizio, non tre unità che il sistema conosca: sono leggibili e verificabili come insieme, e null'altro.</p>
+<p><strong>Se le parti venissero separate, si perderebbe il vincolo che le tiene insieme</strong>, e si perderebbe in silenzio: l'atteso della parte b passerebbe da «la soluzione che lo studente ha trovato» a «la soluzione che i dati determinano», cioè a un valore che non dipende da nessuna risposta dello studente, e il registro non avrebbe nessun modo di accorgersene perché i due esercizi sarebbero legittimi ciascuno nel suo genere.</p>
+<p><strong>Nessuno ricalcola l'atteso dai dati.</strong> La pipeline legge l'atteso dichiarato e lo confronta con la risposta: non risolve il problema di ottimizzazione e non verifica che la dipendenza fra le parti sia rispettata. La coerenza fra regola, dati e valore dichiarato la verifica un lettore, ed è il motivo per cui la regola è scritta per esteso e riapplicata per iscritto a ciascuna parte.</p>
+<p><strong>Non controlla il perché e non misura la padronanza.</strong> Sa dire che cosa la renderebbe misurabile, e non la rende misurabile da solo. Non sa nulla di ciò che accade in classe: le ore in cui non si registra alcun segnale sono un calcolo, non un'osservazione. E non sa che una soglia naturale si può costruire male: qui si dichiara la condizione perché l'esercizio la soddisfi, non perché ogni esercizio futuro la soddisfarà.</p>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: questo esercizio ha tre parti, e la terza non si può rispondere senza la prima. Non sono tre esercizi indipendenti accostati: sono tre domande in sequenza sulla stessa barca, e la parte b si risponde sulla soluzione che hai trovato nella parte a. Il software non sa rappresentare le parti e non registra la dipendenza: se le parti fossero separate, l'atteso della b verrebbe dai dati e non dalla tua risposta, e sbagliare la a azzeccando la b non sarebbe visto.
+
+## PREREQUISITI
+12 decisione sotto vincolo. 11 matematica: ottimizzazione sotto vincolo. Esercizio 03: la stessa barca, tre istanze. Serve sapere che il vincolo che scade per primo decide la risposta.
+
+## OBIETTIVI
+Dire che cosa succede alla soluzione ottima quando il vincolo che scadeva per primo smette di scadere. Nominare il vincolo attivo in una soluzione. Dire che cosa il software non sa rappresentare e perché l'esercizio con parti resta dichiarato per iscritto.
+
+## SCALA
+Livello 4: in un'istanza in cui il vertice misto sparisce per una variazione di una sola unità del vincolo, sa dire che il ricavo cala e di quanto, e sa dire quale dei due vincoli era finito per primo. Livello 3: risolve le tre parti in ordine e scrive le tre risposte nella forma dichiarata. Livello 2: distingue «la risposta cambia» da «la risposta è un'altra» e sa dire che togliere una guida non è un cambio di prezzo. Livello 1: sa che esistono esercizi con delle parti.
+
+## EQUIVOCI
+Il primo: nella parte c la risposta è «no», perché di solito la soluzione non cambia. Qui il vertice misto sparisce e la risposta cambia. Il secondo: rispondere alla parte b con il vincolo che sembra più importante invece di quello che nella soluzione trovata è esaurito. Il terzo: leggere la parte c come un esercizio a sé, e risponderla senza aver risolto la a: la c chiede che cosa succede alla tua soluzione, non a quella del libro.
+
+## ESEMPIO-LAVORATO
+Trenta posti, dodici guide, A occupa 3 posti e rende 600, B ne occupa 2 e rende 450. Variabili x e y intere; vincoli 3x + 2y ≤ 30 e x + y ≤ 12; obiettivo massimizzare 600x + 450y. I vertici sono (0,0), (6,6) e (0,12): (12,0) non è ammissibile perché dodici gruppi da tre posti ne chiederebbero trentasei. Ricavi 0, 6 300 e 5 400: vince (6,6), con entrambi i vincoli esauriti nello stesso punto. Togliendo una guida il vertice misto non è più ammissibile — dodici gruppi con undici guide non si fanno — e l'ottimo si sposta su (8,3): ventiquattro posti più sei, undici gruppi, 6 150 euro. La risposta cambia e cala di 150 euro: meno una guida cancella il vertice in cui finivano insieme i due vincoli.
+
+## VERIFICA
+Un esercizio con tre parti e risposta controllata meccanicamente: la a chiede la ripartizione ottima, la b quale vincolo è attivo in quella soluzione, la c se la risposta cambia quando le guide passano da dodici a undici. Le parti sono dichiarate perché il modello di dati non ha un campo che sia una parte e non sa dire che la c dipende dalla a. L'atteso è dichiarato come applicazione della regola ai numeri, e la regola è riapplicata per iscritto a tutte e tre le parti, perché nessuno la ricalcola automaticamente.
+
+## LIMITE
+Non sa rappresentare una parte, un passo o un ordine, e non registra la dipendenza fra la parte c e la risposta alla parte a: se le parti fossero esercizi distinti, l'atteso della b verrebbe dai dati e non dalla risposta dello studente, e l'errore passerebbe in silenzio. Non ricalcola l'atteso, non controlla il perché e non misura la padronanza: dice che cosa la renderebbe misurabile e non la rende misurabile da solo.
+</template>
+</body>
+</html>

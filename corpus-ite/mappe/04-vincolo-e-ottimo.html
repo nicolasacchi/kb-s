@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Mappa 4: il vincolo e l'ottimo, l'unica mappa con un numero</title>
+<meta name="kb-argument" content="mappe/04-vincolo-e-ottimo.html">
+<meta name="kb-course" content="ite-turismo-secondo-biennio">
+<meta name="kb-family" content="mappe">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="human">
+<meta name="kb-ancoraggio" content="scelta-didattica">
+</head>
+<body>
+<main>
+<h1 id="titolo">Mappa 4: il vincolo e l'ottimo, l'unica mappa con un numero</h1>
+<p class="riassunto">L'unica delle quattro mappe costruita su numeri: i nodi sono i vincoli di una barca, e l'ottimo che li tiene attivi ha un valore che il software può calcolare da solo e confrontare.</p>
+
+<ul class="prerequisiti">
+<li data-prereq="mappe/03-costo-e-territorio.html">03 costo e territorio: il ramo da cui questo parte</li>
+<li data-prereq="argomenti/09-economia-aziendale.html">09 costo e prezzo</li>
+<li data-prereq="argomenti/10-geografia-turistica.html">10 il territorio come fattore di produzione</li>
+<li data-prereq="argomenti/11-matematica.html">11 la domanda di ottimizzazione sotto un vincolo</li>
+<li data-prereq="argomenti/12-decisione-sotto-vincolo.html">12 decisione sotto vincolo</li>
+</ul>
+
+<section class="ancoraggio">
+<h2 id="ancoraggio">Che cosa prescrive il ministero, e che cosa no</h2>
+<p>Il ramo di questa mappa ha una sola disciplina di partenza, e va detto con precisione perché è l'unico caso del grafo in cui la disciplina è <strong>prescritta per intero</strong>: <strong>Matematica</strong>, 132 ore annue e 4 ore settimanali nel secondo anno dell'ITE (DPR 15 marzo 2010 n. 88, Allegato B, quadro orario dell'indirizzo Turismo). Ma la disciplina prescritta non è la mappa, e l'argomento 11 lo dichiara meglio di quanto possa fare questa pagina: l'uso che se ne fa — l'ottimizzazione sotto vincolo applicata alla gestione di una barca da escursione — è una <strong>scelta didattica</strong> dentro quelle ore.</p>
+<p>Quindi anche questa mappa, che è l'unica del corpus costruita su numeri, <strong>non è prescritta in nessuna parte</strong>. Mettere in grafo i vincoli di una barca invece che i passi di un capitolo, decidere che l'ottimo sia un nodo e non una conclusione, e mettere sotto le mani dello studente tre istanze con dati diversi è una scelta della scuola, e lo dichiara. Nel secondo anno l'indirizzo Turismo non ha <strong>nessuna disciplina turistica</strong> nel quadro orario: le cinque discipline di indirizzo hanno celle vuote nel primo e nel secondo anno e 396 ore dal terzo.</p>
+<p><span class="nota">Ancoraggio di questa mappa: <strong>SCELTA_DIDATTICA</strong>. La disciplina da cui proviene (Matematica, 132 h nel secondo anno) è prescritta per intero; il contenuto — il grafo dei vincoli e l'esercizio numerico sull'ottimo — è una scelta della scuola dentro la propria autonomia, e non deriva dal quadro orario né dal percorso degli anni successivi. Nessuna delle quattro mappe di questo corpus è prescritta nella sua interezza.</span></p>
+</section>
+
+<section>
+<h2 id="la-domanda">La domanda a cui devi saper rispondere</h2>
+<p>Su una barca da escursione ci sono <em>C</em> posti, <em>G</em> guide, due tipi di escursione e un solo numero da massimizzare. <strong>Quale ripartizione massimizza il ricavo, e quale dei due vincoli è quello che scade per primo?</strong> Le tre mappe precedenti hanno nodi che sono nomi; questa ha nodi che sono <strong>quantità</strong>, ed è l'unica differenza che conta, perché è l'unica che rende l'esercizio verificabile da una macchina.</p>
+<p><strong>Questa è la mappa che il software può verificare, e lo dice perché.</strong> Un arco fra due nomi si controlla leggendo un attributo in un file: è un confronto di stringhe. Un arco fra due vincoli numerici si controlla calcolando: l'ottimo che tiene attivi entrambi i vincoli ha un <strong>valore</strong>, il valore è determinato dai dati, e il correttore lo ricalcola da solo e lo confronta con quello che hai dichiarato. Non è un modello che giudica: è un confronto. Ed è per questo che <strong>l'ottimo è un nodo della mappa</strong> e non una frase finale: se fosse una conclusione, non ci sarebbe niente da confrontare.</p>
+<p class="claim" data-claim="Questa è l'unica mappa del corpus costruita su vincoli numerici, e quindi l'unica in cui l'ottimo ha un valore che il software ricalcola dai dati e confronta con la risposta dichiarata: l'ottimo è un nodo e non una frase finale, perché se fosse una conclusione non ci sarebbe niente da confrontare." data-claim-id="cl_44_1" data-claim-span="span-44-1" data-stato="supported" data-claim-emitter="teacher:person_0001"><span id="span-44-1"><strong>Questa è la mappa che il software può verificare, e lo dice perché.</strong> Un arco fra due nomi si controlla leggendo un attributo in un file: è un confronto di stringhe. Un arco fra due vincoli numerici si controlla calcolando: l'ottimo che tiene attivi entrambi i vincoli ha un <strong>valore</strong>, il valore è determinato dai dati, e il correttore lo ricalcola da solo e lo confronta con quello che hai dichiarato. Non è un modello che giudica: è un confronto. Ed è per questo che <strong>l'ottimo è un nodo della mappa</strong> e non una frase finale: se fosse una conclusione, non ci sarebbe niente da confrontare.</span></p>
+<p class="claim-nota">Affermazione <code>cl_44_1</code>: Questa è l'unica mappa costruita su vincoli numerici, e l'ottimo è un nodo perché solo così c'è un valore da confrontare.</p>
+</section>
+
+<section class="mappa">
+<h2 id="mappa">La mappa dei vincoli e dell'ottimo</h2>
+<p>Il grafo ha <strong>quattro nodi e quattro archi</strong>. I nodi sono l'obiettivo, i due vincoli e l'ottimo; ogni nodo porta il parametro che lo definisce, perché è lì che la verifica viene fatta. Gli archi sono scritti nella forma «da — relazione — a», e la relazione è ciò che l'arco afferma, non un semplice «precede».</p>
+<p data-nodo="n-obj" data-claim-id="cl_44_1">1 obiettivo: massimizzare 600<em>x</em> + 450<em>y</em> (argomenti/11-matematica.html)</p>
+<p data-nodo="n-posti" data-claim-id="cl_44_1">2 vincolo dei posti: 3<em>x</em> + 2<em>y</em> ≤ <em>C</em> (argomenti/11-matematica.html)</p>
+<p data-nodo="n-guide" data-claim-id="cl_44_1">3 vincolo delle guide: <em>x</em> + <em>y</em> ≤ <em>G</em> (argomenti/11-matematica.html)</p>
+<p data-nodo="n-ottimo" data-claim-id="cl_44_1">4 ottimo: la ripartizione che massimizza il ricavo e il valore che ne segue (argomenti/11-matematica.html)</p>
+<p data-arco="a-obj-ottimo" data-claim-id="cl_44_1">n-obj — massimizzato in — n-ottimo</p>
+<p data-arco="a-posti-ottimo" data-claim-id="cl_44_1">n-posti — tiene attivo — n-ottimo</p>
+<p data-arco="a-posti-guide" data-claim-id="cl_44_2">n-posti — precede — n-guide</p>
+<p data-arco="a-ottimo-posti" data-claim-id="cl_44_2">n-ottimo — precede — n-posti</p>
+<p><strong>Le schede.</strong> Sotto la mappa ci sono tre schede, tutte <em>proponibili</em> e nessuna dichiarata corretta. Una sola è l'arco che i dati richiedono e che sulla mappa manca; le altre due sono le schede che si propongono quando non si è controllato niente. La scelta va motivata per iscritto.</p>
+<p data-scheda="s-guide-ottimo" data-claim-id="cl_44_3">scheda s-guide-ottimo (proponibile): n-guide — tiene attivo — n-ottimo</p>
+<p data-scheda="s-ottimo-guide" data-claim-id="cl_44_3">scheda s-ottimo-guide (proponibile): n-ottimo — precede — n-guide</p>
+<p data-scheda="s-obj-posti" data-claim-id="cl_44_3">scheda s-obj-posti (proponibile): n-obj — precede — n-posti</p>
+<p class="claim" data-claim="I due archi da togliere sono di due generi diversi: uno mette in fila due vincoli che sono contemporanei e non si precedono, l'altro è una freccia girata che fa dipendere il vincolo dall'ottimo invece che l'ottimo dal vincolo." data-claim-id="cl_44_2" data-claim-span="span-44-2" data-stato="supported" data-claim-emitter="teacher:person_0001"><span id="span-44-2">I due archi da togliere non sono dello stesso genere. <code>a-posti-guide</code> mette in fila due vincoli che sono <strong>contemporanei</strong>: nessuno dei due precede l'altro, perché entrambi valgono nello stesso istante su ogni possibile ripartizione, e metterli in fila significa inventare una gerarchia che i dati non hanno. <code>a-ottimo-posti</code> è una <strong>freccia girata</strong>: è l'ottimo che dipende dal vincolo, non il vincolo dall'ottimo.</span></p>
+<p class="claim-nota">Affermazione <code>cl_44_2</code>: I due archi da togliere sono di due generi diversi: uno mette in fila due vincoli contemporanei, l'altro è una freccia girata.</p>
+</section>
+
+<section>
+<h2 id="l-equivoco">L'equivoco che costa di più</h2>
+<p>L'equivoco è credere che i due vincoli siano <strong>di grado diverso</strong>, e quindi che uno debba venire prima dell'altro. Non è vero, ed è l'equivoco che rende l'esercizio interessante: i due vincoli sono <em> contemporanei</em>, cioè valgono insieme su ogni possibile ripartizione, e quello che scade per primo non è il primo ad essere stato scritto, è quello che si esaurisce per primo. Su trentuno posti e dieci guide, dodici gruppi da tre posti non si possono fare perché le guide sono dieci: il vertice misto non esiste, il vincolo che scade per primo è quello delle guide, e la risposta che ne segue sono <strong>dieci gruppi di A</strong> — trenta posti occupati su trentuno, ricavo 6 000. Nessuna delle due scadenze è prima dell'altra perché scritta prima: sono prima nel momento in cui una esaurisce.</p>
+<p>Il secondo equivoco, e il più costoso, è <strong>massimizzare il ricavo per posto invece del ricavo totale</strong>. Il ragionamento «A rende 600 su 3 posti, cioè 200 a posto; B rende 450 su 2 posti, cioè 225 a posto; quindi solo B» è ben ragionato e sbagliato, perché confronta due medie e le usa come se fossero il totale. In <code>m2</code>, dove le guide sono poche, la risposta corretta è <strong>solo A</strong>: il tipo che il ragionamento «per posto» dichiarava il peggiore, e le due risposte sono opposte. È la ragione per cui l'esercizio chiede tre istanze e non una: con una sola istanza, il ragionamento sbagliato e quello giusto possono coincidere, e l'esercizio misurerebbe niente.</p>
+<p class="claim" data-claim="I due vincoli sono contemporanei: quello che scade per primo non è il primo ad essere stato scritto, è quello che si esaurisce per primo, e su un'istanza sola il ragionamento sbagliato e quello giusto possono coincidere." data-claim-id="cl_44_3" data-claim-span="span-44-3" data-stato="supported" data-claim-emitter="teacher:person_0001"><span id="span-44-3">È la ragione per cui l'esercizio chiede tre istanze e non una: con una sola istanza, il ragionamento sbagliato e quello giusto possono coincidere, e l'esercizio misurerebbe niente.</span></p>
+<p class="claim-nota">Affermazione <code>cl_44_3</code>: I due vincoli sono contemporanei, e senza almeno due istanze il ragionamento sbagliato può coincidere con quello giusto.</p>
+</section>
+
+<section class="esercizi">
+<h2 id="verifica">Come si verifica che l'hai capito</h2>
+<p>Qui ci sono <strong>due esercizi</strong>, e sono due perché questa mappa fa due cose che le altre tre non fanno. Il primo toglie e propone come le altre: è la correzione del grafo. Il secondo è quello che <strong>solo questa mappa può permettere</strong>, perché ha un numero dentro. Entrambi hanno risposta determinabile meccanicamente, e nessuno dei due è un numero da indovinare.</p>
+
+<div class="esercizio" data-esercizio="ex_44_1" data-famiglia="mappa-arco" data-checker="set">
+<p><strong>Due archi da togliere, una scheda da mettere al posto.</strong> Fra i quattro archi della mappa, due non sono richiesti dai dati. Indicane i due identificatori e indica quale delle tre schede è l'arco che i dati richiedono e che sulla mappa manca.</p>
+<p class="istanza" data-seed="d1">istanza d1: mappa dei vincoli e dell'ottimo, archi a-obj-ottimo, a-posti-ottimo, a-posti-guide, a-ottimo-posti; schede s-guide-ottimo, s-ottimo-guide, s-obj-posti</p>
+<p class="atteso" data-atteso="togli:a-posti-guide, togli:a-ottimo-posti, proponi:s-guide-ottimo">Risposta attesa: tre elementi — due archi da togliere e una scheda da proporre — l'ordine non conta.</p>
+<p class="note">Il confronto è meccanico e non tollera abbreviazioni né spazi superflui. Al confronto degli identificativi devi aggiungere per iscritto due righe: perché ciascuno dei due archi va tolto, e quale fatto dei dati sostiene la scheda che proponi. Quelle due righe il software non le controlla.</p>
+</div>
+
+<div class="esercizio" data-esercizio="ex_44_2" data-famiglia="ottimizzazione-due-variabili" data-checker="set">
+<p><strong>Le tre istanze della barca, e l'ottimo che tiene attivi i vincoli.</strong> Una barca da escursione ha <em>C</em> posti. L'escursione A occupa <strong>3 posti</strong> per gruppo e rende <strong>600 euro</strong> per gruppo; l'escursione B ne occupa <strong>2</strong> e rende <strong>450</strong>. Ci sono <em>G</em> guide, una per gruppo, e una guida non può seguire due gruppi. Per ciascuna istanza indica <strong>la ripartizione ottima</strong> (quanti gruppi di A e quanti di B), <strong>quale vincolo è attivo</strong> in quella soluzione — <code>posti</code>, <code>guide</code>, oppure <code>entrambi</code> — e <strong>il ricavo</strong> che ne segue.</p>
+<p class="istanza" data-seed="m1">C 24 · G 10</p>
+<p class="istanza" data-seed="m2">C 20 · G 6</p>
+<p class="istanza" data-seed="m3">C 20 · G 12</p>
+<p class="atteso" data-atteso="m1:4A+6B:entrambi:5100, m2:6A+0B:guide:3600, m3:0A+10B:posti:4500">Risposta attesa: tre elementi, uno per istanza, nell'ordine m1, m2, m3 — l'ordine non conta. Nella prima istanza il vertice misto esiste e i due vincoli scadono nello stesso punto; nella seconda il vincolo attivo è quello delle guide e restano due posti liberi; nella terza il vincolo attivo è quello dei posti e restano due guide libere.</p>
+<p class="note">Il confronto è meccanico: tre stringhe per istanza, e il <strong>ricavo lo ricalcola il correttore dai dati dichiarati nell'istanza</strong>, non lo confronta con una tabella scritta a mano. Quindi la terza parte non è un numero da indovinare: è la conseguenza delle prime due, e se hai sbagliato la ripartizione sbagli anche il ricavo. Al confronto delle tre stringhe devi aggiungere per iscritto una riga per istanza che dica perché hai scelto quella ripartizione: quelle righe il software non le controlla.</p>
+</div>
+
+<p><strong>Perché le tre istanze non hanno la stessa risposta, e perché è questo che le rende un esercizio e non un quiz.</strong> In <code>m1</code> ci sono ventiquattro posti e dieci guide: il vertice misto (4, 6) esiste, usa ventiquattro posti e dieci guide, e i due vincoli scadono nello stesso punto — ricavo <strong>5 100</strong>. In <code>m2</code> ci sono venti posti e sei guide: dodici gruppi non si possono fare, il vertice misto non esiste, e la soluzione ottima è <strong>solo A</strong> con ricavo <strong>3 600</strong>, che occupa diciotto posti su venti e tutte e sei le guide. I due posti che avanzano sono troppo piccoli per completare un gruppo: è il caso in cui l'ottimo <em>lascia posti inutilizzati</em>, e quei posti non sono un errore, sono la prova che il vincolo delle guide è scaduto per primo. In <code>m3</code> ci sono venti posti e dodici guide: qui la scarsità è di posti, la soluzione ottima è <strong>solo B</strong> con ricavo <strong>4 500</strong>, la barca è piena e restano due guide libere. Tre risposte diverse e tre ricavi diversi, e la ragione è che il vincolo che scade non è sempre lo stesso: in <code>m1</code> scadono entrambi insieme, in <code>m2</code> scade quello delle guide, in <code>m3</code> quello dei posti. E c'è un'altra ragione, che è la ragione delle tre istanze: in <code>m2</code> il ragionamento «per posto» dice «solo B» e la risposta giusta è «solo A», quindi le due risposte sono opposte; in <code>m1</code> e <code>m3</code> il ragionamento «per posto» dice «solo B» e la risposta giusta contiene anche dei gruppi di A, quindi è sbagliata ma non opposta. Un esercizio con una sola istanza non distingue questi due casi, ed è per questo che ce ne sono tre.</p>
+<p><strong>Che cosa il correttore controlla, e che cosa no, in ciascuno dei due esercizi.</strong> Sul primo controlla tre stringhe e nient'altro: due identificativi di arco e un identificativo di scheda. Sul secondo controlla nove stringhe — tre per istanza — e per la terza parte <strong>ricalcola il ricavo dai dati</strong> invece di leggerlo da una tabella: è la differenza fra un esercizio che verifica e uno che ricopia. In nessuno dei due casi <strong>controlla la motivazione</strong>. Una risposta data a caso ha probabilità bassa e non nulla — nell'esercizio numerico, se si indovina solo la ripartizione e si sbagliano il vincolo e il ricavo, la probabilità di azzeccare tutti e tre gli elementi è molto più bassa, ed è per questo che le tre parti stanno nello stesso formato e non si possono rispondere a pezzi — e va misurata sulla classe, non calcolata a tavolino. La parte che il software non sa fare resta scritta qui, dove un docente la legge.</p>
+<p><strong>Che cosa questa mappa non sa rappresentare, detto qui e non solo nella sezione LIMITE.</strong> Non sa disegnare la regione ammissibile: sulla mappa ci sono quattro nodi e quattro archi, e la regione — l'insieme dei punti che rispettano i due vincoli — non c'è, perché non è un nodo e non è un arco. Non sa mostrare che l'ottimo è un vertice e non un punto qualsiasi della regione: il perché di quella scelta sta nell'argomento 11, e qui c'è solo il fatto. Non sa rappresentare le variabili come intere, e quindi non sa dire che un terzo di gruppo non esiste: le istanze sono abbastanza piccole perché l'ottimo continuo e quello intero coincidano, e se non coincidessero la mappa darebbe una risposta che non si può realizzare. E non sa passare da un'istanza all'altra: sa che le tre risposte sono diverse, non sa che la differenza dipende da quale vincolo scade.</p>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: questa è l'unica mappa del corpus costruita su numeri, e quindi l'unica in cui il software ricalcola la risposta invece di confrontare una stringa. Il ricavo che dichiari non viene cercato in una tabella: viene ricalcolato dai dati dell'istanza. Se sbagli la ripartizione, sbagli anche il ricavo, ed è voluto.
+
+## PREREQUISITI
+03 costo e territorio, il ramo da cui questo parte. E i file 09, 10, 11, 12: la quantità da massimizzare viene da 09, la risorsa che non si può comprare da 10, la domanda di ottimizzazione da 11, e da 12 la consapevolezza che una soglia va guadagnata.
+
+## OBIETTIVI
+Dire quale dei due vincoli scade per primo e perché i due non sono in ordine fra loro. Riconoscere un ottimo che lascia posti inutilizzati e spiegare che quei posti non sono un errore. Risolgere per enumerazione dei vertici senza calculus, e riconoscere l'equivoco del ricavo per posto. Correggere gli archi della mappa come nelle altre tre.
+
+## SCALA
+Livello 4: in un'istanza nuova con la stessa tabella e dati diversi, sceglie la ripartizione oppia rispetto a quella di partenza e sa dire quale dei due vincoli è quello che scade. Livello 3: risolve un'istanza enumerando i vertici, scrive la ripartizione, il vincolo attivo e il ricavo. Livello 2: distingue i due vincoli in un caso già impostato e sa dire che «tutto pieno» non è sempre la risposta. Livello 1: distingue la variabile dalla quantità limitata.
+
+## EQUIVOCI
+Il primo: i due vincoli sono in ordine fra loro, quindi uno «viene prima». No: sono contemporanei, e quello che scade prima è quello che si esaurisce per primo, non quello scritto per primo. Il secondo: massimizzare il ricavo per posto invece del totale. Il ragionamento è sensato e la risposta è sbagliata, e nell'istanza dalle poche guide la risposta giusta è proprio il tipo che «per posto» dichiarava il peggiore. Il terzo: credere che aggiungere un arco ripari la mappa. No: l'arco che manca qui è il secondo vincolo che tiene attivo l'ottimo, e non è il sostituto di nessuno dei due da togliere.
+
+## ESEMPIO-LAVORATO
+C 20, G 6. Dodici gruppi non si possono fare perché le guide sono sei: il vertice misto non esiste e l'ottimo è 6 A e 0 B, ricavo 3 600, con diciotto posti occupati su venti e tutte le guide impegnate. I due posti liberi non sono un errore: non esiste un gruppo abbastanza piccolo per completarli, e la loro esistenza è la prova che il vincolo scaduto è quello delle guide. Con C 20, G 12 la risposta è 0 A e 10 B, ricavo 4 500: barca piena e due guide libere. Stessi posti, guide diverse, risposte opposte.
+
+## VERIFICA
+Due esercizi con risposta determinabile meccanicamente. Il primo: due archi da togliere fra quattro e una scheda da proporre fra tre, tre stringhe. Il secondo: tre istanze con dati diversi, e per ciascuna la ripartizione, il vincolo attivo e il ricavo — nove stringhe, con il ricavo ricalcolato dal correttore. In entrambi i casi il software confronta e non giudica, e in entrambi non legge la motivazione che devi scrivere.
+
+## LIMITE
+Vale per due variabili e istanze piccole: sopra i venti gruppi l'enumerazione non regge e la mappa non avverte del limite. Non sa rappresentare la regione ammissibile, non sa che le variabili sono intere, e non sa passare da un'istanza all'altra.
+</template>
+</body>
+</html>
