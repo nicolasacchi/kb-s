@@ -50,14 +50,13 @@ COPY vendor/ vendor/
 # sorgenti, che è il modo in cui si perdono ore di build a un binario
 # svuotato.
 RUN find crates -name '*.rs' -exec touch {} + \
- && cargo build --release --bin kbs-serve \
- && strip target/release/kbs-serve
+ && cargo build --release --bin kbs-serve --bin kbs \
+ && strip target/release/kbs-serve target/release/kbs
 
 # ── esecuzione ────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
 # `ca-certificates` serve alle firme TLS; `curl` serve a un healthcheck
-# che non sia "il processo esiste" ma "risponde". Entrambi piccoli.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
@@ -69,6 +68,13 @@ RUN useradd --system --create-home --uid 10001 kbs
 WORKDIR /app
 
 COPY --from=costruisci /build/target/release/kbs-serve /app/kbs-serve
+
+# La CLI di intake viaggia con l'immagine per la stessa ragione del daemon:
+# un operatore che ha materiale da caricare deve poterlo fare senza
+# raggiungere la macchina da fuori. `kbs-serve` da solo non basta — il
+# corpus è un albero di file e il registro è nel database, e senza il
+# verbo che li unisce il corpus resta muto.
+COPY --from=costruisci /build/target/release/kbs /app/kbs
 # L'interfaccia e il runtime three.js viaggiano con l'immagine, ma i flag
 # li dichiarano comunque: vedi la nota in testa al Dockerfile.
 COPY --from=costruisci /build/crates/kbs-server/web /app/web
