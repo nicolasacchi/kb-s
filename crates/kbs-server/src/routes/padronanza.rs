@@ -47,7 +47,7 @@ use kbs_store::padronanza::{CohortShare, Criterion, MasteryRow, MASTERY_FRESHNES
 
 use crate::capability;
 use crate::error::ApiError;
-use crate::identity::{Identity, SharedIdentity};
+use crate::identity::SharedIdentity;
 use crate::ids;
 use crate::routes::AppState;
 
@@ -74,7 +74,10 @@ pub struct MeterQuery {
 pub struct ShareQuery {
     /// La classe. È l'etichetta della scuola, che è anche il braccio della claim.
     pub cohort: String,
-    /// L'inizio della finestra dei passaggi, in millisecondi.
+    /// L'inizio della finestra dei passaggi, in millisecondi. Se manca vale `a`
+    /// meno la finestra di freschezza; se è **dopo** `a` la richiesta è un `400`,
+    /// perché con `from > to` il predicato di `mastery_share` smette di contare
+    /// le transizioni e conta le perdite.
     pub da: Option<i64>,
     /// La fine della finestra, in millisecondi. Se manca, l'ora della richiesta.
     pub a: Option<i64>,
@@ -124,7 +127,8 @@ pub async fn meter(
 
 /// `GET /api/v1/courses/{course}/padronanza/quota?cohort=…&da=…&a=…`
 ///
-/// `200 {"criterion": {…}, "quota": null | {…}}` · `404` se non `teaches`.
+/// `200 {"criterion": {…}, "quota": null | {…}}` · `404` se non `teaches` ·
+/// `400` se la classe non è un'etichetta o se `da` è dopo `a`.
 ///
 /// `quota: null` **non è uno zero**: sotto `COHORT_MIN_K` la quota non esiste, e
 /// la pagina lo dice con una frase invece di mostrare un numero. Il criterio
@@ -133,7 +137,14 @@ pub async fn meter(
 ///
 /// `da` e `a` sono gli estremi della finestra in cui si contano i passaggi da non
 /// dimostrato a dimostrato. Se `da` manca vale `a` meno la finestra di
-/// freschezza, ed è il default dichiarato nel metodo.
+/// freschezza, ed è il default dichiarato nel metodo. **`da` dopo `a` è una
+/// `400`, non una finestra raddrizzata: vedi `ShareQuery::finestra`.**
+///
+/// I due `400` vengono **prima** del controllo di relazione, e devono: la
+/// risposta a una classe malformata o a una finestra capovolta dipende solo dai
+/// parametri che ha scritto chi chiama, quindi non dice niente del corso e non
+/// è un canale. La classe **assente** invece è un `null` e non un `400`, perché
+/// un'assenza è una domanda incompleta e non una domanda sbagliata.
 pub async fn share(
     State(state): State<AppState>,
     identita: SharedIdentity,
@@ -143,7 +154,7 @@ pub async fn share(
     let course = ids::course(&course).ok_or(ApiError::Absent)?;
     let persona = identita.person().clone();
     let classe = chi.classe()?;
-    let (da, a) = chi.finestra();
+    let (da, a) = chi.finestra()?;
     let quota = state.db.read_api(|store| {
         capability::require(store, &persona, &course, Some(Relation::Teaches))?;
         match classe {
@@ -243,19 +254,55 @@ impl ShareQuery {
     /// aggiunge passaggi, e una finestra lunga è soltanto una finestra in cui un
     /// numero è più piccolo e meno leggibile. Quella di default è la più corta in
     /// cui una transizione è possibile per costruzione del criterio.
-    fn finestra(&self) -> (Millis, Millis) {
+    ///
+    /// # `da` dopo `a` è una `400`, e non una finestra raddrizzata
+    ///
+    /// Il motivo per cui questa rotta non può semplicemente ignorare `da` è che
+    /// `from > to` **non è un'inversione**: `mastery_share` valuta il metro due
+    /// volte, una a `from` e una a `to`, e con `from` nel futuro i due verdetti
+    /// divergono precisamente quando lo studente è dimostrato al giorno `to` e
+    /// non lo è più al giorno `from`. `transitions` diventerebbe un **rilevatore
+    /// di perdita**, su un numero che la pagina chiama «passaggi da non
+    /// dimostrato a dimostrato».
+    ///
+    /// Raddrizzare la finestra in silenzio è economico e non è onesto: il corpo
+    /// riporterebbe `from` e `to`, quindi la correzione sarebbe visibile a chi
+    /// già sospetta, ma il numero resterebbe la risposta a una domanda che
+    /// nessuno ha fatto. Questo crate risponde alle domande dichiarate, e per un
+    /// parametro che si contraddice da solo la risposta dichiarata è l'errore —
+    /// la stessa forma che dà `routes::calendario` a un `orizzonte` che non è
+    /// un intero non negativo: due parametri di tempo, due rotte, una regola.
+    ///
+    /// `da == a` invece passa: è una finestra legittima e vuota, e la sua
+    /// risposta — nessun passaggio in una finestra senza durata — è vera.
+    fn finestra(&self) -> Result<(Millis, Millis), ApiError> {
         let a = self.a.map(Millis).unwrap_or_else(Millis::now);
         let da = self
             .da
             .map(Millis)
             .unwrap_or_else(|| Millis(a.0.saturating_sub(MASTERY_FRESHNESS_WINDOW.0)));
-        (da, a)
+        if da.0 > a.0 {
+            return Err(ApiError::BadRequest {
+                motivo: format!(
+                    "`da` è {} e `a` è {}: una finestra che finisce prima di cominciare \
+                     non è una finestra. Omettere `da` dà la finestra di default; un \
+                     `da` dopo `a` è una domanda da correggere, non da interpretare",
+                    da.0, a.0
+                ),
+            });
+        }
+        Ok((da, a))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // `Identity` serve solo qui: fuori dai test nessuno in questo file
+    // costruisce un'identità dichiarata, e lasciare l'import in alto
+    // produceva un avviso «unused» in ogni build non-test — cioè nella build
+    // che produce il binario che si pubblica.
+    use crate::identity::Identity;
 
     /// Un'identità dichiarata, per la parte della query che la usa.
     fn dichiarata(persona: PersonId) -> SharedIdentity {
@@ -278,16 +325,25 @@ mod tests {
         );
         assert_eq!(
             MeterQuery {
-                // `person_`, non `persona_`: `ids::person` controlla la sicurezza
-                // della stringa e non il prefisso, quindi un id che `PersonId`
-                // non può mai produrre entra lo stesso e finisce in un 404
-                // legittimo. Il prefisso lo fissa `string_id!` in `kbs-core`.
-                person: Some("person_0009".into()),
+                // `persona_0009` non è una forma che `PersonId::fixture`
+                // produca, e questo id entra lo stesso: `ids::person` controlla
+                // la sicurezza della stringa e non il prefisso, che è una
+                // convenzione di `fixture(n)` e non un invariante del tipo — il
+                // campo di `string_id!` è `pub` e la CLI conia `PersonId` da
+                // stringhe arbitrarie. Quindi `persona_0009` può nominare una
+                // persona vera, con relazioni e con prove, e in quel caso la
+                // rotta restituisce il suo metro vero. Il `404` di questa rotta
+                // è per chi non è lo studente e non insegna, non per l'id: è
+                // `identity.rs` a dichiarare la regola, cioè che la
+                // dichiarazione si verifica solo nella forma e mai
+                // nell'esistenza.
+                person: Some("persona_0009".into()),
                 at: None
             }
             .persona(&io)
             .expect("un id di persona ben formato"),
-            PersonId::fixture(9)
+            PersonId("persona_0009".into()),
+            "l'id entra come è scritto: nessun prefisso viene aggiunto o tolto"
         );
         // Una stringa che non è un id non è «la persona sbagliata»: è nessuna
         // persona, e la risposta è la stessa di un id che non è mai esistito.
@@ -351,7 +407,8 @@ mod tests {
             da: None,
             a: Some(a),
         }
-        .finestra();
+        .finestra()
+        .expect("una finestra con un solo estremo non è capovolta");
         assert_eq!(fine, Millis(a));
         assert_eq!(
             da.0,
@@ -365,10 +422,78 @@ mod tests {
                 da: Some(0),
                 a: Some(a)
             }
-            .finestra(),
+            .finestra()
+            .expect("una finestra esplicita e dritta"),
             (Millis(0), Millis(a)),
             "la finestra esplicita non si tocca"
         );
+        // `da == a` non è una finestra capovolta: è una finestra senza durata,
+        // e «nessun passaggio in una finestra senza durata» è vero. Rifiutarla
+        // sarebbe un controllo che scopre un caso che non è rotto.
+        assert_eq!(
+            ShareQuery {
+                cohort: "2A".into(),
+                da: Some(a),
+                a: Some(a)
+            }
+            .finestra()
+            .expect("una finestra di durata zero è una finestra"),
+            (Millis(a), Millis(a)),
+            "l'estremo coincidente non è un'estremo fuori posto"
+        );
+    }
+
+    /// La finestra capovolta è l'unico caso che questa funzione rifiuta, ed è
+    /// un rifiuto per costruzione: senza la guardia, `from > to` arriva a
+    /// `mastery_share` e i due verdetti divergono — `transitions` conta chi al
+    /// giorno `a` è dimostrato e al giorno `from` non lo è più. Il predicato
+    /// diventerebbe un rilevatore di perdite su un numero che la pagina chiama
+    /// «passaggi da non dimostrato a dimostrato».
+    ///
+    /// Il test è sensibile alla riga che lo rende verde: togliere la guardia e
+    /// `expect_err` qui sotto riceverebbe un `Ok` e il test fallirebbe. Non è un
+    /// test che passa «per costruzione» perché il caso è assurdo — `da` dopo `a`
+    /// è una domanda che un parametro copiato a mano produce senza accorgersene,
+    /// ed è esattamente il caso in cui il numero pubblicato era falso.
+    #[test]
+    fn la_finestra_capovolta_e_un_errore_e_non_una_finestra() {
+        let a = 1_700_000_000_000i64;
+        let rifiutata = ShareQuery {
+            cohort: "2A".into(),
+            da: Some(a + MASTERY_FRESHNESS_WINDOW.0),
+            a: Some(a),
+        }
+        .finestra()
+        .expect_err("una finestra che finisce prima di cominciare non è una finestra");
+        assert!(
+            matches!(rifiutata, ApiError::BadRequest { .. }),
+            "il rifiuto è un `400` e non un'assenza: un'assenza qui sarebbe la \
+             stessa risposta che sotto soglia, che è un'altra cosa"
+        );
+        let motivo = match rifiutata {
+            ApiError::BadRequest { motivo } => motivo,
+            altro => panic!("{altro:?}"),
+        };
+        // Il motivo porta i **due numeri**, non i due nomi dei parametri: «`da` è
+        // maggiore di `a`» dice a chi chiama che la domanda è sbagliata ma non
+        // gli dice quale dei due valori abbia digitato male.
+        for valore in [a.to_string(), (a + MASTERY_FRESHNESS_WINDOW.0).to_string()] {
+            assert!(
+                motivo.contains(&valore),
+                "il motivo non riporta `{valore}`, quindi chi chiama non sa quale \
+                 dei due estremi abbia scritto: {motivo}"
+            );
+        }
+        // Il caso limite della guardia: un solo millisecondo di inversione è
+        // già un'inversione. Se la guardia fosse `<` invece di `<=`, questa riga
+        // passerebbe e il numero tornerebbe a essere quello sbagliato.
+        assert!(ShareQuery {
+            cohort: "2A".into(),
+            da: Some(a + 1),
+            a: Some(a)
+        }
+        .finestra()
+        .is_err());
     }
 
     #[test]

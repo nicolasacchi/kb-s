@@ -45,8 +45,12 @@ export const ROTTE = {
   // `api.js`, che è costretto a riprendere l'argomento con una seconda chiamata).
   ricerca: "/api/v1/search",
 
-  // Esportazione a colonne fisse (D12). Va chiamata con `scarica`, non con
-  // `fetch`: il browser deve poterla salvare come file.
+  // Esportazione a colonne fisse (D12). **Nessun modulo la chiama**, e va detto
+  // perché: chi la prendesse con `get` la mostrerebbe a schermo, perché la
+  // risposta è un file e non un corpo JSON. Il wrapper che la scarica — un
+  // link che il browser apre come un file — è previsto e non scritto, e finché
+  // non c'è il fatto vero è che qui non c'è un pulsante: la rotta esiste ed è
+  // provata contro il router vero, ma nessuna pagina la apre.
   export: "/api/v1/courses/{corso}/export",
 
   // Eventi: partizionati per corso, e il canale del corpo docente lo sceglie

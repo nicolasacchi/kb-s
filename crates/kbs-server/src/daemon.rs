@@ -25,7 +25,7 @@
 //! | codice | vuol dire |
 //! |---|---|
 //! | 0 | partito e chiuso con un segnale |
-//! | 2 | **rifiutato da una regola**: corpus assente, database dentro il corpus, epoch futura |
+//! | 2 | **rifiutato da una regola**: corpus assente, database dentro il corpus, epoch futura, percorso dichiarato con `--web`/`--vendor` che non c'è |
 //! | 3 | non ho capito gli argomenti |
 //! | 4 | il sistema non ha potuto rispondere: apertura, bind |
 //!
@@ -34,6 +34,9 @@
 //! nuovo — e la tabella di `kbs` parla di un rimedio solo. Quello che non
 //! cambia è che il 2 non è mai un errore di sintassi: `--corpus` che manca è 3,
 //! `--corpus` che punta a una directory che non c'è è 2.
+//!
+//! Lo stesso vale per `--web` e `--vendor`: dichiararli è un atto, e un atto
+//! che il daemon non può onorare è 2, non un avviso che scende nel log.
 //!
 //! # Il database non lo crea nessuno, e non è dentro il corpus
 //!
@@ -60,6 +63,18 @@
 //! serve niente, e la ragione sarebbe invisibile. Un daemon che si rifiuta di
 //! partire e nomina il percorso che ha cercato costa una riga di stderr e
 //! risparmia un'ora di debug. Vedi [`controlla_corpus`].
+//!
+//! # I due percorsi compilati: default, non vincoli
+//!
+//! `web_dir` e `vendor_dir` nascono da `CARGO_MANIFEST_DIR` e sono giusti per
+//! chi esegue dal checkout. Un binario compilato porta però dentro di sé un
+//! percorso assoluto, e un'immagine Docker non contiene la directory in cui
+//! qualcuno ha compilato: senza `--web` e `--vendor` il daemon non si pubblica.
+//! Perciò i due sono dichiarabili, e la differenza che conta è tra
+//! **nessuna dichiarazione** e **dichiarazione che non esiste**: la prima
+//! applica il default e, se l'interfaccia manca, avvisa; la seconda è un
+//! deployment sbagliato e si rifiuta all'avvio. Vedi
+//! [`controlla_percorsi`].
 //!
 //! # L'identità è una dichiarazione, e si dice all'avvio
 //!
@@ -127,6 +142,42 @@ pub enum Errore {
          Indica la cartella che contiene gli artifact, oppure creala e rilancia."
     )]
     CorpusAssente { percorso: PathBuf },
+
+    /// `--web` punta a una directory che non c'è.
+    ///
+    /// Il daemon non la crea e non la cerca da un'altra parte, per la stessa
+    /// ragione di [`CorpusAssente`]: un percorso dichiarato esplicitamente e
+    /// non trovato è un deployment sbagliato, e sostituirlo in silenzio con
+    /// il default compilato servirebbe l'interfaccia di un'altra
+    /// installazione — o nessuna, con la stessa risposta «interfaccia non
+    /// installata» di un'istanza che non ne ha.
+    #[error(
+        "l'interfaccia {percorso} non è una cartella.\n\
+         Il daemon non la crea: `--web` è una dichiarazione, e dichiarare un \
+         percorso che non esiste significa che il deployment è sbagliato — \
+         sostituirlo in silenzio servirebbe i file di un'altra installazione.\n\
+         Indica la cartella che contiene i file dell'interfaccia, oppure \
+         togli `--web` per un'istanza senza interfcia: in quel caso è un \
+         avviso, non un rifiuto."
+    )]
+    WebAssente { percorso: PathBuf },
+
+    /// `--vendor` punta a un albero senza il runtime three.js.
+    ///
+    /// È la condizione che [`crate::vendor::Vendor`] chiama `presente == false`:
+    /// senza rifiuto, ogni artifact che chiama fuori dal proprio foglio
+    /// risponderebbe `500` alla prima visualizzazione, e la causa sarebbe
+    /// dentro una risposta che l'operatore legge come un bug dell'artifact.
+    #[error(
+        "il runtime three.js non è in {percorso}.\n\
+         D15: il runtime è vendorizzato nel repository e servito dal binario, \
+         e `--vendor` dice dove sta in questa installazione. Senza quel file \
+         un artifact che chiama fuori non è verificabile, e la rotta \
+         risponderebbe un errore a ogni visualizzazione.\n\
+         Indica la cartella che contiene `three/`, oppure copia il `vendor/` \
+         del repository accanto al binario."
+    )]
+    VendorAssente { percorso: PathBuf },
 
     /// `--db` sta dentro `--corpus`.
     #[error(
@@ -205,6 +256,7 @@ impl Esito {
             Errore::Uso(_) => Esito::Uso,
             Errore::CorpusAssente { .. } | Errore::DatabaseNelCorpus { .. } => Esito::Rifiutata,
             Errore::EpochFutura { .. } => Esito::Rifiutata,
+            Errore::WebAssente { .. } | Errore::VendorAssente { .. } => Esito::Rifiutata,
             Errore::Apertura { .. } | Errore::Ascolto { .. } => Esito::Sistema,
         }
     }
@@ -225,13 +277,27 @@ pub struct Opzioni {
     pub database: PathBuf,
     /// Dove mettersi in ascolto.
     pub ascolta: SocketAddr,
+    /// La cartella dell'interfaccia, se `--web` l'ha dichiarata.
+    ///
+    /// `None` è un valore, non una dimenticanza: significa «l'installazione
+    /// non porta un'interfaccia» e il daemon avvisa e serve l'API. `Some` è
+    /// una dichiarazione, e una dichiarazione che non esiste è un rifiuto —
+    /// vedi [`Errore::WebAssente`].
+    pub web: Option<PathBuf>,
+    /// La cartella che contiene `three/`, se `--vendor` l'ha dichiarata.
+    ///
+    /// Come [`web`](Self::web): `None` è il default compilato, che è giusto
+    /// per chi esegue dal checkout e rotto per chi ha spostato il binario.
+    pub vendor: Option<PathBuf>,
 }
 
 impl Opzioni {
     /// Le opzioni con i default, sopra un corpus.
     ///
     /// Serve al test; il corpus come obbligo lo impone [`analizza`], che è
-    /// l'unico posto in cui si legge la riga di comando.
+    /// l'unico posto in cui si legge la riga di comando. `web` e `vendor` qui
+    /// sono `None` per costruzione: questa funzione dice «come si parte dal
+    /// checkout», e un test che volesse provare un override lo nomina.
     pub fn con_corpus(corpus: impl Into<PathBuf>) -> Self {
         Opzioni {
             corpus: corpus.into(),
@@ -239,6 +305,8 @@ impl Opzioni {
             ascolta: INDIRIZZO_PREDEFINITO
                 .parse()
                 .expect("l'indirizzo di default è un SocketAddr: è una costante"),
+            web: None,
+            vendor: None,
         }
     }
 }
@@ -255,6 +323,7 @@ pub fn uso() -> String {
 
 USO:
     {NOME} --corpus <cartella> [--db <file>] [--listen <indirizzo>]
+            [--web <cartella>] [--vendor <cartella>]
 
 OPZIONI:
     --corpus <cartella>   la radice del corpus: sotto questa cartella stanno
@@ -267,13 +336,31 @@ OPZIONI:
     --listen <indirizzo>  dove mettersi in ascolto. Default: {INDIRIZZO_PREDEFINITO}
                           (loopback). Un indirizzo non-loopback espone a chiunque
                           raggiunga la porta: l'identità qui è una dichiarazione.
+    --web <cartella>     la cartella dei file dell'interfaccia. Default: la
+                          cartella `web/` accanto al crate, cioè il posto in cui
+                          il binario è stato compilato — giusto per chi esegue
+                          dal checkout, rotto per un binario spostato. Va
+                          dichiarata in un'immagine o in un pacchetto
+                          installato, e se non è una cartella il daemon si
+                          rifiuta di partire: sostituirla in silenzio servirebbe
+                          i file di un'altra installazione. Senza `--web`
+                          l'interfaccia è facoltativa e l'assenza è un avviso.
+    --vendor <cartella>  la cartella che contiene `three/`, il runtime
+                          vendorizzato di D15. Default: `vendor/` alla radice
+                          del repository, cioè due directory sopra il crate, per
+                          la stessa ragione di `--web`. Va dichiarata quando il
+                          binario gira fuori dal checkout; se `three/` non c'è
+                          il daemon si rifiuta di partire, perché senza runtime
+                          ogni artifact che chiama fuori risponderebbe un
+                          errore a ogni visualizzazione.
     -h, --help            questo testo.
     -V, --version         la versione.
 
 CODICI DI USCITA:
     0  partito e chiuso con un segnale
     2  rifiutato da una regola (corpus assente, database dentro il corpus,
-       database all'epoch di un binario più nuovo)
+       database all'epoch di un binario più nuovo, --web o --vendor che
+       dichiarano un percorso dove non c'è quello che dichiarano)
     3  gli argomenti non sono un comando
     4  il sistema non ha potuto rispondere (apertura, bind)
 "
@@ -313,7 +400,7 @@ fn prossimo(args: &[String], i: &mut usize, nome: &str) -> Result<String, Errore
 /// e la prosa è in italiano come nel resto della CLI: la bandierina è un nome
 /// che un altro programma può copiare, il testo è per chi legge.
 ///
-/// Il ciclo è scritto a mano e non con un parser perché i casi sono tre e la
+/// Il ciclo è scritto a mano e non con un parser perché i casi sono cinque e la
 /// regola che conta è una sola: `--flag` senza valore non è un errore
 /// ignorabile, è un errore che nomina la bandierina; e `--flag` ripetuta non è
 /// «l'ultima vince», è un comando ambiguo. Accettare l'ultima è quello che fa
@@ -323,6 +410,8 @@ pub fn analizza(args: &[String]) -> Result<Richiesta, Errore> {
     let mut corpus: Option<PathBuf> = None;
     let mut database: Option<PathBuf> = None;
     let mut ascolta: Option<String> = None;
+    let mut web: Option<PathBuf> = None;
+    let mut vendor: Option<PathBuf> = None;
     let mut i = 0;
 
     while i < args.len() {
@@ -354,6 +443,18 @@ pub fn analizza(args: &[String]) -> Result<Richiesta, Errore> {
                     return Err(Errore::Uso(format!("--listen ripetuta\n\n{}", uso())));
                 }
             }
+            "--web" => {
+                let v = prossimo(args, &mut i, "--web")?;
+                if web.replace(PathBuf::from(v)).is_some() {
+                    return Err(Errore::Uso(format!("--web ripetuta\n\n{}", uso())));
+                }
+            }
+            "--vendor" => {
+                let v = prossimo(args, &mut i, "--vendor")?;
+                if vendor.replace(PathBuf::from(v)).is_some() {
+                    return Err(Errore::Uso(format!("--vendor ripetuta\n\n{}", uso())));
+                }
+            }
             altro => {
                 return Err(Errore::Uso(format!(
                     "argomento sconosciuto `{altro}`\n\n{}",
@@ -378,6 +479,12 @@ pub fn analizza(args: &[String]) -> Result<Richiesta, Errore> {
         corpus,
         database: database.unwrap_or_else(|| PathBuf::from(DATABASE_PREDEFINITO)),
         ascolta,
+        // `None` e non un percorso: il default compilato è applicato in
+        // `avvia`, perché solo lì si distingue «nessuna dichiarazione» da
+        // «dichiarazione che non esiste» — e la validazione deve poter dire
+        // la differenza.
+        web,
+        vendor,
     }))
 }
 
@@ -405,20 +512,30 @@ pub struct InAscolto {
 /// `TIME_WAIT` e un messaggio d'errore su un indirizzo che l'operatore aveva
 /// visto comparire. L'ordine è apri → monta → prendi, e ognuno dei tre è
 /// rifiutato in un modo che nomina la causa.
+///
+/// I percorsi dichiarati sono validati **prima** di aprire il database, per lo
+/// stesso motivo di `controlla_corpus`: un rifiuto che lascia un file SQLite
+/// creato sul disco è un rifiuto che il riavvio successivo non distingue più
+/// da un avvio riuscito.
 pub async fn avvia(opzioni: &Opzioni) -> Result<InAscolto, Errore> {
     let corpus = controlla_corpus(&opzioni.corpus)?;
     controlla_db(&corpus, &opzioni.database)?;
+    controlla_percorsi(opzioni)?;
     let db = apri(&opzioni.database)?;
 
-    let config = ServerConfig::new(&corpus);
-    if !config.web_dir.is_dir() {
-        // Non è un errore: il daemon può servire l'API e gli artifact anche
-        // senza interfaccia, e la rotta del fallback dice già
-        // «interfaccia non installata» invece di una pagina vuota. Avvisare qui
-        // serve a non confondere «non c'è una UI» con «non c'è niente».
+    let config = ServerConfig::new(&corpus)
+        .con_percorsi(opzioni.web.as_deref(), opzioni.vendor.as_deref());
+    if opzioni.web.is_none() && !config.web_dir.is_dir() {
+        // Non è un errore, e la ragione è la stessa di prima: il daemon può
+        // servire l'API e gli artifact anche senza interfaccia, e la rotta
+        // del fallback dice già «interfaccia non installata» invece di una
+        // pagina vuota. Ma vale **solo** quando nessuno ha dichiarato `--web`:
+        // un percorso dichiarato e non trovato è un deployment sbagliato, e
+        // l'ha già detto `controlla_percorsi`.
         eprintln!(
             "avviso: l'interfaccia non è installata in {}: le rotte dell'API \
-             rispondono, `/` risponderà «interfaccia non installata».",
+             rispondono, `/` risponderà «interfaccia non installata». \
+             In un'immagine o in un pacchetto installato, dichiarala con --web.",
             config.web_dir.display()
         );
     }
@@ -443,6 +560,36 @@ pub async fn avvia(opzioni: &Opzioni) -> Result<InAscolto, Errore> {
         ascoltatore,
         applicazione,
     })
+}
+
+/// Rifiuta i percorsi che `--web` e `--vendor` dichiarano e che non sono
+/// quello che dichiarano.
+///
+/// La validazione è **sui flag dichiarati**, non sui percorsi finali: il
+/// default compilato è giusto per chi esegue dal checkout e fuori dal
+/// repository non esiste, quindi rifiutarlo cambierebbe il comportamento di
+/// oggi per tutti quelli che oggi funzionano. Un override, invece, è una
+/// dichiarazione: se non c'è, il daemon sbaglia qualcosa e deve dirlo
+/// subito, non al primo artifact che chiama three.js.
+///
+/// Il controllo del vendor è sul **file**, non sulla cartella: `vendor/` può
+/// esistere ed essere vuota, e `Vendor::load` su un file assente non fallisce
+/// — registra un errore e lascia che ogni rotta risponda `500` alla prima
+/// visualizzazione. Un albero senza `three/three.module.min.js` è quindi un
+/// deployment rotto che si annuncia come un bug degli artifact.
+fn controlla_percorsi(opzioni: &Opzioni) -> Result<(), Errore> {
+    if let Some(web) = &opzioni.web {
+        if !web.is_dir() {
+            return Err(Errore::WebAssente { percorso: web.clone() });
+        }
+    }
+    if let Some(vendor) = &opzioni.vendor {
+        let runtime = ServerConfig::three_runtime_alla(vendor);
+        if !runtime.is_file() {
+            return Err(Errore::VendorAssente { percorso: runtime });
+        }
+    }
+    Ok(())
 }
 
 /// Apre il database, e distingue l'epoch futura dal resto.
@@ -689,7 +836,7 @@ mod tests {
 
     #[test]
     fn una_bandierina_senza_valore_e_un_errore_che_la_nomina() {
-        for flag in ["--corpus", "--db", "--listen"] {
+        for flag in ["--corpus", "--db", "--listen", "--web", "--vendor"] {
             let e = analizza(&linea(flag)).unwrap_err();
             assert!(matches!(e, Errore::Uso(_)), "{flag} dovrebbe essere errore d'uso");
             assert!(e.to_string().contains(flag), "il messaggio deve nominare {flag}");
@@ -706,6 +853,8 @@ mod tests {
             ("--corpus a --corpus b", "--corpus"),
             ("--corpus c --db a --db b", "--db"),
             ("--corpus c --listen 127.0.0.1:1 --listen 127.0.0.1:2", "--listen"),
+            ("--corpus c --web a --web b", "--web"),
+            ("--corpus c --vendor a --vendor b", "--vendor"),
         ] {
             let e = opzioni(args).unwrap_err();
             assert!(matches!(e, Errore::Uso(_)), "{flag} ripetuta: {e}");
@@ -739,6 +888,108 @@ mod tests {
             panic!("--version deve essere una richiesta di testo");
         };
         assert!(t.starts_with(NOME), "il nome stampato è quello del binario: {t}");
+    }
+
+    #[test]
+    fn senza_i_due_flag_il_default_compilato_regge_e_il_daemon_non_si_rifiuta() {
+        // La promessa di non cambiare il comportamento di oggi, vista da dove
+        // sta la differenza: `None` non è «percorso mancante», è «default
+        // applicato». Il rifiuto nasce solo da un percorso dichiarato.
+        let o = opzioni("--corpus c").unwrap();
+        assert!(o.web.is_none());
+        assert!(o.vendor.is_none());
+        // E il default applicato è esattamente quello compilato, non uno
+        // simile: un operatore che esegue dal checkout deve trovare la stessa
+        // cartella che trovava ieri.
+        let config = ServerConfig::new("/tmp/corpus")
+            .con_percorsi(o.web.as_deref(), o.vendor.as_deref());
+        assert_eq!(config.web_dir, ServerConfig::new("/tmp/corpus").web_dir);
+        assert_eq!(config.vendor_dir, ServerConfig::new("/tmp/corpus").vendor_dir);
+        assert!(controlla_percorsi(&o).is_ok());
+    }
+
+    #[test]
+    fn il_flag_vince_sul_default() {
+        // «Precedenza» vuol dire una cosa sola: il percorso dichiarato
+        // sostituisce quello compilato. Il resto — la validazione, che è
+        // l'unica parte che può far fallire l'avvio — è nei due test sotto.
+        let o = opzioni("--corpus c --web /opt/ui --vendor /opt/vend").unwrap();
+        let config = ServerConfig::new("/tmp/corpus")
+            .con_percorsi(o.web.as_deref(), o.vendor.as_deref());
+        assert_eq!(config.web_dir, PathBuf::from("/opt/ui"));
+        assert_eq!(config.vendor_dir, PathBuf::from("/opt/vend"));
+        assert_eq!(
+            config.three_runtime(),
+            PathBuf::from("/opt/vend/three/three.module.min.js")
+        );
+    }
+
+    #[test]
+    fn un_web_dichiarato_e_inesistente_rifiuta_e_nome_il_percorso() {
+        let tmp = tempfile::tempdir().unwrap();
+        let assente = tmp.path().join("ui-che-non-c-e");
+        let mut o = Opzioni::con_corpus(tmp.path());
+        o.web = Some(assente.clone());
+        let e = controlla_percorsi(&o).unwrap_err();
+        assert!(matches!(e, Errore::WebAssente { .. }));
+        let testo = e.to_string();
+        assert!(testo.contains(&assente.display().to_string()), "{testo}");
+        assert!(testo.contains("--web"), "il rimedio deve nominare il flag: {testo}");
+        assert_eq!(Esito::da_errore(&e), Esito::Rifiutata);
+        // E non viene creato: una cartella creata dal daemon sarebbe vuota,
+        // che è la stessa risposta «non c'è» di un deployment senza UI.
+        assert!(!assente.exists());
+    }
+
+    #[test]
+    fn un_vendor_dichiarato_senza_il_runtime_rifiuta_e_il_messaggio_e_quello_di_una_rotta() {
+        // Il caso che vale la pena coprire è `vendor/` **esistente ma vuota**:
+        // `Vendor::load` su un file assente non fallisce, lascia il vendor
+        // senza piano, e ogni rotta del runtime risponde `500` con D15 dentro
+        // la risposta. Un deployment rotto che si annuncia come un bug degli
+        // artifact è la ragione per cui qui si rifiuta.
+        let tmp = tempfile::tempdir().unwrap();
+        let vuoto = tmp.path().join("vendor");
+        std::fs::create_dir(&vuoto).unwrap();
+        let mut o = Opzioni::con_corpus(tmp.path());
+        o.vendor = Some(vuoto.clone());
+        let e = controlla_percorsi(&o).unwrap_err();
+        assert!(matches!(e, Errore::VendorAssente { .. }));
+        let testo = e.to_string();
+        assert!(testo.contains("three.module.min.js"), "{testo}");
+        assert!(testo.contains("--vendor"), "{testo}");
+        assert_eq!(Esito::da_errore(&e), Esito::Rifiutata);
+        // La cartella esiste e resta vuota: nessuna parte di questo percorso
+        // crea il runtime.
+        assert!(vuoto.is_dir());
+        assert!(!vuoto.join("three").exists());
+    }
+
+    #[tokio::test]
+    async fn un_vendor_dichiarato_che_c_e_avvia() {
+        // Il test positivo dell'override: senza questo, «abbiamo due flag» e
+        // «i due flag cambiano qualcosa» resterebbero la stessa frase. Il
+        // vendor vero è quello del repository, dichiarato con `--vendor`: il
+        // punto è che il percorso dichiarato vince su quello compilato e il
+        // daemon parte.
+        let tmp = tempfile::tempdir().unwrap();
+        let corpus = tmp.path().join("corpus");
+        std::fs::create_dir(&corpus).unwrap();
+        let vendor = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("vendor");
+        let o = Opzioni {
+            corpus,
+            database: tmp.path().join("kb.sqlite3"),
+            ascolta: "127.0.0.1:0".parse().unwrap(),
+            web: None,
+            vendor: Some(vendor.clone()),
+        };
+        avvia(&o)
+            .await
+            .expect("con --vendor dichiarato e vero il daemon parte");
+        assert!(vendor.join("three").join("three.module.min.js").is_file());
     }
 
     // ── le regole di avvio ──────────────────────────────────────────────────
@@ -848,6 +1099,8 @@ mod tests {
             corpus,
             database: percorso.clone(),
             ascolta: "127.0.0.1:0".parse().unwrap(),
+            web: None,
+            vendor: None,
         };
         let e = avvia(&opzioni).await.unwrap_err();
         let Errore::EpochFutura { epoch, binario, .. } = &e else {
@@ -874,6 +1127,8 @@ mod tests {
             corpus: tmp.path().join("non-esiste"),
             database: database.clone(),
             ascolta: "127.0.0.1:0".parse().unwrap(),
+            web: None,
+            vendor: None,
         };
         assert!(matches!(
             avvia(&opzioni).await.unwrap_err(),

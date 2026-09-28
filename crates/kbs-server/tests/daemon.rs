@@ -395,6 +395,14 @@ async fn istanza() -> (Istanza, daemon::InAscolto) {
         // vera. Un test che fissa una porta è un test che un giorno fallisce
         // perché qualcun altro ha la stessa.
         ascolta: "127.0.0.1:0".parse().expect("indirizzo"),
+        // `None` e non un percorso: i due campi sono i sovrasscritturi dei
+        // default compilati dentro il binario, e qui si vuole esattamente il
+        // default — cioè l'interfaccia e il vendor accanto al sorgente, che è
+        // dove stanno quando il test gira dal checkout. Nominarli esplicitamente
+        // è la correzione minima, e lascia il campo a vista per chi aggiungerà
+        // un test che invece vuole un percorso diverso.
+        web: None,
+        vendor: None,
     };
     // Il `Errore` porta con sé il rimedio, quindi qui il rimedio non si perde
     // in un `.expect` che dice solo «chiamata non valida».

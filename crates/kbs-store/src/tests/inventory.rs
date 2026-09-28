@@ -12,10 +12,13 @@
 //! 1. **Ogni `pub fn` che restituisce un'`Observation` prende un `&PersonId`.**
 //!    È l'antidoto al difetto che è costato più caro: una lettura del registro
 //!    delle dimostrazioni che non sa chi chiede.
-//! 2. **Ogni lettura pubblica che consegna contenuto di un corso è nominata
-//!    nell'inventario di `lib.rs`.** Non basta che ci sia: il nome deve comparire
-//!    come collegamento, così l'inventario è un elenco che si può consultare e non
-//!    un paragrafo che si può dimenticare.
+//! 2. **Ogni lettura pubblica che consegna contenuto di un corso e che
+//!    non prende una persona è nominata nell'inventario di `lib.rs`.** La
+//!    qualificazione è nella frase e non è un dettaglio: una lettura che
+//!    prende una persona risponde già alla domanda «di chi è», ed è il caso
+//!    senza persona che il predicato non può coprire. Non basta che ci sia: il
+//!    nome deve comparire come collegamento, così l'inventario è un elenco che
+//!    si può consultare e non un paragrafo che si può dimenticare.
 //! 3. **La scansione trova le firme.** Una guardia che non trova niente passa
 //!    sempre, e una guardia che passa sempre è un commento con un `assert`.
 //!
@@ -49,10 +52,14 @@ impl Firma {
     /// Se la strada pubblica consegna contenuto che appartiene a un corso.
     ///
     /// I tipi elencati qui sono quelli di `kbs-core` (o aggiunti da questo crate)
-    /// che descrivono **materiale**: un argomento, un esercizio, una risposta, un
-    /// giudizio, una dimostrazione, una rubrica, un evento di generazione, un
-    /// segnale di coorte. Un id, uno stato o una stringa non sono materiale, e la
-    /// guardia non ha niente da dire su quelli.
+    /// che descrivono **materiale**: un argomento, un esercizio, una risposta,
+    /// un giudizio, una dimostrazione, una rubrica, un evento di generazione, un
+    /// segnale di coorte. **Un aggregato è materiale quanto la sua riga**: il
+    /// metro di uno studente, la quota di una classe e la coda di richiamo sono
+    /// tre letture di corso come un argomento, e una guardia che le lascia fuori
+    /// ascolterebbe in silenzio il giorno in cui una di loro perdesse la
+    /// persona. Un id, uno stato o una stringa non sono materiale, e la guardia
+    /// non ha niente da dire su quelli.
     fn consegna_contenuto(&self) -> bool {
         [
             "Observation",
@@ -64,6 +71,10 @@ impl Firma {
             "RubricVersion",
             "GenerationEvent",
             "CohortSignal",
+            "Proof",
+            "MasteryRow",
+            "CohortShare",
+            "Calendar",
         ]
         .iter()
         .any(|t| contiene_parola(&self.ritorno, t))

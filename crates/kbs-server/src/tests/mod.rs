@@ -21,6 +21,7 @@ mod capability_routes;
 mod cohort_route;
 mod export_route;
 mod guardia;
+mod padronanza_route;
 mod queue_route;
 mod registers_route;
 mod search_route;

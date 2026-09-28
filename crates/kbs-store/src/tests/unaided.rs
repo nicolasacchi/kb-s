@@ -4,9 +4,9 @@
 //! essere falsificato, né nel valore né nella lettura**. Sono tre le cose, e
 //! ognuna ha il suo tipo di prova:
 //!
-//! 1. il `CHECK` e il trigger della migrazione `V6` mordono, e la riga che non
-//!    doveva entrare non è entrata: il confronto è sul numero di righe, non sul
-//!    fatto che qualcosa abbia restituito un errore;
+//! 1. i `CHECK` e i trigger delle migrazioni `V6` e `V7` mordono, e la riga
+//!    che non doveva entrare non è entrata: il confronto è sul numero di righe,
+//!    non sul fatto che qualcosa abbia restituito un errore;
 //! 2. la **query** dello studente non può restituire una riga assistita, e la
 //!    prova è sulla relazione che legge e sul contenuto che torna, non sul
 //!    fatto che una rotta sia stata chiamata;
@@ -196,7 +196,7 @@ fn il_check_su_unaided_morde_e_poi_lascia_passare_il_valore_buono() {
 
 #[test]
 fn le_invarianti_che_non_stanno_in_una_colonna_sono_del_database() {
-    // Sono le due che `append_observation` non può mai produrre, e le si
+    // Sono le tre che `append_observation` non può mai produrre, e le si
     // provano con SQL scritto a mano: è il caso per cui esistono.
     let mut s = School::new();
     let arg = s.published(1);
@@ -207,7 +207,7 @@ fn le_invarianti_che_non_stanno_in_una_colonna_sono_del_database() {
 
     // Un conteggio di indizi dichiarato per una riga di cui si ignora la
     // disponibilità dell'aiuto: sapere «quante piste c'erano» presuppone sapere
-    // «se ce n'era qualcuna».
+    // «se ce n'era qualcuna». È la direzione che `V6` copre.
     let testo = inserimento(&s, &sessione, &arg.id, "obs-ambigua", 98, "NULL, 2")
         .expect_err("l'aiuto ignoto non può avere un conteggio")
         .to_string();
@@ -219,7 +219,26 @@ fn le_invarianti_che_non_stanno_in_una_colonna_sono_del_database() {
         "un conteggio di indizi negativo entra, e non doveva"
     );
 
-    assert_eq!(righe(&s), 1, "nessuna delle due righe è entrata");
+    // E la direzione che `V6` non copriva, che è quella che gonfia il numero:
+    // chi dichiara l'aiuto assente non può contare le piste. «Nessun aiuto
+    // disponibile» con tre piste dichiarate è la claim del progetto messa nel
+    // registro da sola, e il registro è append-only — la riga, una volta
+    // dentro, non si riscrive.
+    let testo = inserimento(&s, &sessione, &arg.id, "obs-piste", 96, "1, 3")
+        .expect_err("l'aiuto assente non può avere un conteggio di piste")
+        .to_string();
+    assert!(testo.contains("n_hints"), "{testo}");
+    assert!(testo.contains("aiuto assente"), "{testo}");
+
+    // La stessa direzione nell'altro verso, che è quello che il corpus scrive:
+    // aiuto dichiarato disponibile e piste contate è la riga normale, e una
+    // guardia che la chiudesse avrebbe spostato il confine invece di
+    // allargarlo. È anche la prova che il trigger di `V7` guarda `unaided` e
+    // non «quante piste» in generale.
+    inserimento(&s, &sessione, &arg.id, "obs-assistita", 95, "0, 3")
+        .expect("aiuto dichiarato e piste contate: la riga che il banco scrive");
+
+    assert_eq!(righe(&s), 2, "una riga è entrata e nessuna delle tre respinte");
 }
 
 #[test]

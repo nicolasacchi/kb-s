@@ -123,13 +123,13 @@ fn read_epoch(conn: &Connection) -> Result<i32> {
 ///
 /// **L'ordine con cui refinery le applica non è l'ordine delle versioni.**
 /// `find_migration_files` restituisce i file nell'ordine in cui li legge, e su
-/// questo filesystem è `[2, 1, 4, 5, 3]`: è stato proprio un test a notarlo, con
-/// l'epoch finale a 1 dopo una migrazione applicata per ultima. Per questo ogni
-/// migrazione **alza** l'epoch con `MAX(epoch, N)` e non lo assegna: applicarle
-/// in ordine sbagliato non deve cambiare il risultato. E il controllo qui sotto
-/// resta quello che vale — dopo tutte le migrazioni, l'epoch deve essere
-/// l'ultima versione, altrimenti un file manca o è stato rinumerato e il
-/// binario non sa che cosa sta scrivendo.
+/// questo filesystem, quando le migrazioni erano sei, era `[2, 1, 4, 5, 3]`: è
+/// stato proprio un test a notarlo, con l'epoch finale a 1 dopo una migrazione
+/// applicata per ultima. Per questo ogni migrazione **alza** l'epoch con
+/// `MAX(epoch, N)` e non lo assegna: applicarle in ordine sbagliato non deve
+/// cambiare il risultato. E il controllo qui sotto resta quello che vale — dopo
+/// tutte le migrazioni, l'epoch deve essere l'ultima versione, altrimenti un file
+/// manca o è stato rinumerato e il binario non sa che cosa sta scrivendo.
 pub fn migrate(conn: &mut Connection) -> Result<i32> {
     embedded::migrations::runner().run(conn)?;
     let (db, binary) = (read_epoch(conn)?, binary_epoch());
@@ -184,7 +184,7 @@ mod unit {
             .iter()
             .map(|m| m.version())
             .collect();
-        // Le versioni sono 1..6 in un ordine che **non** è quello: refinery le
+        // Le versioni sono 1..7 in un ordine che **non** è quello: refinery le
         // legge nell'ordine del filesystem e le applica così. Ogni versione
         // alza l'epoch con `MAX`, quindi l'ordine non conta — ma l'insieme delle
         // versioni sì, e questo è il numero che la guardia confronta.
@@ -196,7 +196,7 @@ mod unit {
         // test è rosso — che è il comportamento voluto.
         let mut ordinata = versions.clone();
         ordinata.sort_unstable();
-        assert_eq!(ordinata, vec![1, 2, 3, 4, 5, 6]);
-        assert_eq!(binary_epoch(), 6);
+        assert_eq!(ordinata, vec![1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(binary_epoch(), 7);
     }
 }

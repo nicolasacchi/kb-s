@@ -836,6 +836,51 @@ fn una_riga_cambiata_senza_rifarne_la_foglia_non_si_apre() {
     ));
 }
 
+/// Una chiave che `Observation` **non conosce** non è una riga che il file
+/// rifuta: al parse viene ignorata, quindi il valore tipizzato è lo stesso e
+/// la foglia ricalcolata sul tipo è quella dichiarata. Il testo della colonna,
+/// però, porta un fatto che nessun hash copre — ed è per questo che il
+/// confronto non può stare sulla foglia: anche rifacendola sul testo
+/// manomesso, la riga non torna.
+#[test]
+fn una_riga_che_porta_una_chiave_che_il_valore_non_conosce_non_si_apre() {
+    let sessione = SessionId::new("s");
+    let testo = export(&sessione, &rows(4, "a"), None).to_text();
+    let riga = righe_di_riga(&testo, 0);
+    // nell'ordine canonico `assisted` sta fra `argument` e `at`
+    let manomessa = riga.replacen("\"at\":", "\"assisted\":true,\"at\":", 1);
+    assert_ne!(riga, manomessa, "la chiave non è entrata nella colonna");
+    assert_eq!(
+        canonicalize_str(&manomessa).unwrap(),
+        manomessa,
+        "il testo resta canonico: il confronto precedente guardava la forma, non la sostanza"
+    );
+
+    // 1. il testo cambia, la foglia no
+    let colata = testo.replacen(&riga, &manomessa, 1);
+    assert_ne!(colata, testo);
+    assert!(matches!(
+        ChainExport::from_text(&colata).unwrap().observations(),
+        Err(ExportError::RowTextMismatch { .. })
+    ));
+
+    // 2. e rifare la foglia sul testo manomesso non la salva: la foglia impegna
+    //    il testo della colonna, e quel testo non è quello che l'osservazione
+    //    produce
+    let dichiarata =
+        leaf_of_value(&serde_json::from_str::<serde_json::Value>(&riga).unwrap()).unwrap();
+    let rifatta =
+        leaf_of_value(&serde_json::from_str::<serde_json::Value>(&manomessa).unwrap()).unwrap();
+    assert_ne!(dichiarata, rifatta);
+    let rifatto = testo
+        .replacen(&riga, &manomessa, 1)
+        .replacen(&dichiarata.to_hex(), &rifatta.to_hex(), 1);
+    assert!(matches!(
+        ChainExport::from_text(&rifatto).unwrap().observations(),
+        Err(ExportError::RowTextMismatch { .. })
+    ));
+}
+
 /// Un file di **nove** colonne — cioè scritto da una versione precedente di
 /// questo crate — si apre ancora, e le sue quattro righe si leggono. Il
 /// formato cresce in coda per poter invecchiare: chi ha già un file in

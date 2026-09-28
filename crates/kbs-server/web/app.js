@@ -18,6 +18,7 @@ import { lettore } from "./pagine/lettore.js";
 import { ricerca } from "./pagine/ricerca.js";
 import { registri } from "./pagine/registri.js";
 import { coorte } from "./pagine/coorte.js";
+import { padronanza } from "./pagine/padronanza.js";
 
 /** Il corso corrente. Cambia dalla barra in alto e basta. */
 let corso = null;
@@ -112,6 +113,7 @@ const VISTE = {
   coda: paginaCoda,
   registri: paginaRegistri,
   coorte: (c) => coorte({ nodo: area, id: c.argomento }),
+  padronanza: paginaPadronanza,
 };
 
 async function instrada() {
@@ -222,6 +224,34 @@ async function paginaRegistri(corrente) {
     corso,
     studente,
     argomento: corrente.query.get("argomento") ?? null,
+  });
+}
+
+/**
+ * Il metro, con il corso dalla barra in alto e lo studente dalla barra o dalla
+ * rotta: la stessa coppia che `paginaRegistri` prende, perché il registro e il
+ * metro sono le due metà della stessa domanda.
+ *
+ * Le guardie stanno **nella pagina** e non qui. `pagine/padronanza.js` le ha
+ * già, con la sua prosa, e una seconda copia in questo file sarebbe una
+ * seconda risposta alla stessa domanda — che è la cosa che `registri.js` chiama
+ * «due fonti di verità che si disaccordano». Qui c'è solo il cablaggio: da
+ * dove arriva ciascun parametro.
+ *
+ * `classe` e `at` vengono solo dalla rotta, e non dalla barra in alto, perché
+ * non sono lo stato della pagina: sono la domanda che la pagina sta facendo.
+ * `?cohort=` è il nome che il server dà a `classe` sulla rotta della quota
+ * (`ShareQuery::classe`), e `?at=` sono i millisecondi che `MeterQuery::istante`
+ * legge. La stringa passa come arriva ed è il server a validarla: qui non c'è
+ * un secondo parser di numeri che possa dire una cosa diversa.
+ */
+async function paginaPadronanza(corrente) {
+  await padronanza({
+    nodo: area,
+    corso,
+    studente: corrente.query.get("person") ?? persona(),
+    classe: corrente.query.get("cohort") ?? null,
+    at: corrente.query.get("at") ?? null,
   });
 }
 

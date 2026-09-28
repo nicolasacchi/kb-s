@@ -1,15 +1,21 @@
 //! Come è fatto il deployment: dove sta il corpus, dove il runtime
 //! vendorizzato, e quale è il suffisso delle origini artifact.
 //!
-//! # Perché quasi tutto ha un default e il vendor no
+//! # Perché i due percorsi compilati sono un default, non un vincolo
 //!
 //! Il corpus e il database stanno dove li mette chi installa, quindi hanno un
 //! valore di default e si sovrascrivono. Il runtime three.js è un'altra
 //! cosa: D15 dice che è **nel repository** e servito dal binario, e quindi il
-//! suo posto è una conseguenza della build, non una scelta di runtime. Perciò
-//! il default è il percorso del repository accanto al crate e non un valore
-//! «da configurare»: se qualcuno lo sposta, l'errore è esplicito e nomina
-//! D15, non un `404` che sembrerebbe un percorso sbagliato.
+//! suo posto è una conseguenza della build. Finché l'unico modo di eseguire
+//! il binario è dal checkout, «la radice del repository» è la risposta
+//! giusta. Ma un binario compilato porta dentro di sé un percorso assoluto,
+//! e un'immagine Docker non contiene la directory in cui qualcuno ha
+//! compilato: `web_dir` e `vendor_dir` diventavano allora due percorsi
+//! inesistenti e il daemon non si pubblicava. Perciò i due sono **dichiarabili
+//! a runtime** ([`ServerConfig::con_percorsi`]) e dichiararli non è una
+//! cortesia: è l'unico modo in cui il binario fuori dal checkout funziona.
+//! Ciò che non cambia è la validazione: D15 vuole il runtime presente, e un
+//! percorso dichiarato che non lo contiene è un rifiuto, non un avviso.
 //!
 //! # `parent_origin`
 //!
@@ -69,7 +75,40 @@ impl ServerConfig {
     /// va servito: D15 lo vuole minimizzato e gzip-ato, e i due file sono
     /// già in `vendor/three/`.
     pub fn three_runtime(&self) -> PathBuf {
-        self.vendor_dir.join("three").join("three.module.min.js")
+        ServerConfig::three_runtime_alla(&self.vendor_dir)
+    }
+
+    /// La configurazione con i due percorsi dichiarati a runtime.
+    ///
+    /// Il binario compilato porta dentro di sé due percorsi assoluti — la
+    /// cartella `web/` accanto al crate e `vendor/` alla radice del repository
+    /// — e sono giusti per chi esegue dal checkout e sbagliati appena il
+    /// binario viene spostato: un'immagine Docker non contiene la directory
+    /// in cui qualcuno ha compilato. Perciò i due sono sovrascrivibili, e la
+    /// differenza tra «non dichiarato» e «dichiarato e non trovato» è un
+    /// `Option`: la validazione di quella distinzione sta in
+    /// [`crate::daemon::controlla_percorsi`], perché è lì che la regola è.
+    pub fn con_percorsi(mut self, web: Option<&Path>, vendor: Option<&Path>) -> Self {
+        if let Some(web) = web {
+            self.web_dir = web.to_path_buf();
+        }
+        if let Some(vendor) = vendor {
+            self.vendor_dir = vendor.to_path_buf();
+        }
+        self
+    }
+
+    /// Il percorso del runtime three.js dentro un albero `vendor/`, senza
+    /// costruire una configurazione.
+    ///
+    /// Una funzione associata e non un trucco: la validazione di `--vendor`
+    /// avviene prima di sapere qual è il corpus, e costruire una
+    /// `ServerConfig` con un corpus fittizio per ottenere una concatenazione
+    /// sarebbe una riga che il lettore deve smontare. `None` qui non esiste:
+    /// la concatenazione è vera per qualsiasi radice, l'esistenza del file è
+    /// un'altra domanda e la fa `daemon::controlla_percorsi`.
+    pub fn three_runtime_alla(vendor: &Path) -> PathBuf {
+        vendor.join("three").join("three.module.min.js")
     }
 
     /// Il corpus normalizzato, una volta sola.
@@ -89,6 +128,10 @@ impl ServerConfig {
 /// `../../` è la radice del workspace, dove `vendor/` sta per convenzione di
 /// D15. In un'installazione fuori dal repository il percorso non esiste e la
 /// rotta del runtime lo dice con un errore che nomina la regola.
+///
+/// Fuori dal repository questo percorso non esiste, ed è per questo che
+/// `--vendor` esiste: non per cambiare il default, ma per sostituirlo dove il
+/// default non può arrivare.
 fn default_vendor_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -119,5 +162,35 @@ mod tests {
     fn senza_parent_origin_non_si_dichiara_frame_ancestors() {
         let cfg = ServerConfig::new("/tmp/corpus");
         assert!(cfg.parent_origin.is_none());
+    }
+
+    #[test]
+    fn i_due_percorsi_dichiarati_sostituiscono_il_default_compilato() {
+        // Il caso da coprire è metà e metà: `--web` da solo non deve
+        // spostare il vendor, e viceversa. Un override che tocca l'altro
+        // campo per pigrizia porterebbe a servire il runtime di
+        // un'installazione diversa, che è esattamente il difetto che i due
+        // flag sono nati per chiudere.
+        let base = ServerConfig::new("/tmp/corpus");
+        let solo_web = base.clone().con_percorsi(Some(Path::new("/opt/ui")), None);
+        assert_eq!(solo_web.web_dir, PathBuf::from("/opt/ui"));
+        assert_eq!(solo_web.vendor_dir, base.vendor_dir);
+
+        let solo_vendor = base.clone().con_percorsi(None, Some(Path::new("/opt/vend")));
+        assert_eq!(solo_vendor.vendor_dir, PathBuf::from("/opt/vend"));
+        assert_eq!(solo_vendor.web_dir, base.web_dir);
+        // E il runtime segue il vendor dichiarato, non quello compilato.
+        assert_eq!(
+            solo_vendor.three_runtime(),
+            ServerConfig::three_runtime_alla(Path::new("/opt/vend"))
+        );
+    }
+
+    #[test]
+    fn nessun_dichiarato_lascia_esattamente_il_default_compilato() {
+        let base = ServerConfig::new("/tmp/corpus");
+        let invariata = base.clone().con_percorsi(None, None);
+        assert_eq!(invariata.web_dir, base.web_dir);
+        assert_eq!(invariata.vendor_dir, base.vendor_dir);
     }
 }

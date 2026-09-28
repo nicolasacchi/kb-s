@@ -51,11 +51,9 @@
 //!   [`Store::exercise`], [`Store::instances_of`], [`Store::generations_for`] e
 //!   [`Store::rubric_version`];
 //! * **non hanno una persona, e sono eccezioni dichiarate** —
-//!   [`Store::export_fixed_columns`] è del docente del corso, e controlla
-//!   l'esportazione a colonne fisse di D12; [`Store::cohort_signals`] è
-//!   l'**aggregato anonimo** oltre soglia di D9, e non contiene persone: il dato
-//!   individuale da cui viene si legge solo da [`Store::observations_for`], che
-//!   è soggetta al predicato;
+//!   [`Store::cohort_signals`] è l'**aggregato anonimo** oltre soglia di D9, e
+//!   non contiene persone: il dato individuale da cui viene si legge solo da
+//!   [`Store::observations_for`], che è soggetta al predicato;
 //! * **non sono letture** — le scritture ([`Store::append_observation`],
 //!   [`Store::append_grading`], [`Store::append_claim`], `upsert_*`, `put_*`,
 //!   `record_*`, `open_session`, `close_session`, `index_chunk`, …) restano senza
@@ -64,7 +62,7 @@
 //!   non usa sarebbe una coperta. Le letture sono il modello di sicurezza; le
 //!   scritture sono una porta di servizio, e va detto.
 //!
-//! Due eccezioni hanno una regola che **non** è `may_read` e sono dichiarate
+//! Quattro eccezioni hanno una regola che **non** è `may_read` e sono dichiarate
 //! perché sono state proprio quelle che il modulo non ripeteva:
 //!
 //! * **il lato generatore di D8** ([`Store::exercise`], [`Store::instances_of`])
@@ -85,6 +83,12 @@
 //!   la frase. «Lo studente vede solo le osservazioni non assistite, mai la coda
 //!   di practice» è una riga che, se sta in una rotta, è un filtro che marcisce;
 //!   se sta in una vista, è una parte del file che il database porta con sé.
+//! * **l'esportazione a colonne fisse di D12** ([`Store::export_fixed_columns`])
+//!   prende una persona e chiede **`teaches` sul corso**: l'export è il
+//!   materiale del docente per intero, e «vedere l'argomento» non basta, perché
+//!   uno studente iscritto vede un argomento in corso e non deve poterne
+//!   scaricare la colonna. Ha una persona, quindi non è fra le eccezioni qui
+//!   sopra: sta in questo blocco per la regola che chiede, non per la firma.
 //!
 //! I due limiti di quel modello, dichiarati perché sono i prossimi a venire
 //! letti: i **ruoli non esistono** (D5 li vieta come oggetto memorizzato: sono un

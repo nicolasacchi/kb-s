@@ -524,13 +524,15 @@ fn diagnostica(args: &[String]) -> Result<serde_json::Value> {
 
 /// Il tentativo non assistito: la riga che alimenta il numeratore della claim.
 ///
-/// **`--aiuto` è obbligatoria e non ha un default.** `0` è la misura «nessuna
-/// pista servita dal sistema»; un valore assente è «non lo so», che è una riga
-/// diversa e va registrata altrove — ed è la ragione per cui la colonna
-/// `n_hints` è nullable e non `NOT NULL DEFAULT 0`. Un default a zero qui
-/// scriverebbe «nessuna pista disponibile» per ogni tentativo di cui nessuno ha
-/// contato niente, che è la dichiarazione retroattiva che `V6__unaided.sql`
-/// vieta per la colonna.
+/// **`--aiuto` è obbligatoria e non ha un default.** `0` è la dichiarazione
+/// «nessuna pista servita durante il tentativo», e chi la scrive è **chi
+/// amministra la sessione**: in questa versione nessun codice serve le piste e
+/// nessun codice le conta, e il doc di [`pratica`] lo dichiara. Un valore
+/// assente è «non lo so», che è una riga diversa e va registrata altrove — ed è
+/// la ragione per cui la colonna `n_hints` è nullable e non `NOT NULL DEFAULT
+/// 0`. Un default a zero qui scriverebbe «nessuna pista disponibile» per ogni
+/// tentativo di cui nessuno ha contato niente, che è la dichiarazione retroattiva
+/// che `V6__unaided.sql` vieta per la colonna.
 ///
 /// **`--esito` non viene ricalcolato qui.** È il verdetto del verificatore
 /// deterministico di `kbs-exercise`, e questo crate non lo rivaluta: una seconda
@@ -555,7 +557,7 @@ fn tenta(args: &[String]) -> Result<serde_json::Value> {
         .parse()
         .map_err(|_| {
             Error::Uso(
-                "--aiuto e' un intero non negativo: e' un conteggio di piste servite dal sistema, e un conteggio che non e' stato fatto non e' uno zero"
+                "--aiuto e' un intero non negativo: e' un conteggio di piste servite durante il tentativo, e un conteggio che non e' stato fatto non e' uno zero"
                     .to_string(),
             )
         })?;

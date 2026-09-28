@@ -16,15 +16,15 @@
 //! | `evidence` | `Checked { exercise, instance, correct }` | la prova è un confronto di programma (D8) |
 //! | `judged_by` | `Deterministic` | il primo anello della catena, ed è l'unico che qui si attraversa |
 //! | `unaided` | `Some(n_hints == 0)` | **derivato**, non dichiarato: vedi sotto |
-//! | `n_hints` | `Some(n)` | un conteggio che il sistema ha fatto, non un default |
+//! | `n_hints` | `Some(n)` | un conteggio **dichiarato** da chi amministra la sessione, non un default |
 //! | `argument` | quello dell'esercizio | non è un campo del tentativo: vedi sotto |
 //!
-//! # `unaided` non è un parametro, e questa è tutta la difesa
+//! # `unaided` non è un parametro, e la difesa sta nella firma
 //!
 //! La firma di [`Tentativo`] **non ha un campo `unaided`**. Chi chiama non può
-//! dichiarare che uno studente ha lavorato senza aiuto: può solo dire **quante
-//! piste il sistema ha servito** durante quel tentativo, e la colonna segue da
-//! quel numero. Il perché è la semantica che il corpus dà a `unaided` riga per
+//! dichiarare che uno studente ha lavorato senza aiuto: può solo **dichiarare
+//! quante piste sono state servite** durante quel tentativo, e la colonna segue
+//! da quel numero. Il perché è la semantica che il corpus dà a `unaided` riga per
 //! riga (`16-oggetto-educativo-e-corpus.html`, `#esempio-lavrato`, passo 06):
 //!
 //! > «`unaided = 0` perché ci sono stati due indizi: **quindi questa riga non
@@ -34,12 +34,13 @@
 //! > seconda riga è l'unica che conta.**»
 //!
 //! Quindi la colonna non descrive lo studente e non descrive la sua intenzione:
-//! descrive **che cosa ha fatto il sistema**. Un sistema che serve due piste e
-//! poi dichiara `unaided = 1` sta facendo la dichiarazione retroattiva che la
-//! stessa migrazione `V6` vieta per la colonna (`DEFAULT 1` «dice che quegli
-//! studenti hanno risposto senza aiuto: una padronanza che il sistema non ha mai
-//! misurato»). Qui la regola è applicata alla sorgente invece che al default: il
-//! numero è contato e la colonna è la sua conseguenza.
+//! descrive **quanta assistenza era disponibile** in quel momento. Una
+//! dichiarazione di `n_hints = 0` a cui non corrisponde nessuna pista servita è
+//! la dichiarazione retroattiva che la stessa migrazione `V6` vieta per la
+//! colonna (`DEFAULT 1` «dice che quegli studenti hanno risposto senza aiuto: una
+//! padronanza che il sistema non ha mai misurato»). Qui la regola è applicata
+//! alla sorgente invece che al default: **la quantità viaggia con la riga** e la
+//! colonna è la sua conseguenza.
 //!
 //! # Che cosa `n_hints` è, e la parola giusta
 //!
@@ -51,11 +52,40 @@
 //! campo dice `n_hints`, e la discordanza è dichiarata invece di essere
 //! moltiplicata.
 //!
-//! `n_hints` è **quante piste il sistema ha servito**, non quante lo studente ha
-//! chiesto e non quante ne avrebbe potute chiedere. È l'unico conteggio che
-//! questo modulo può fare senza mentire: il sistema non ha un registro delle
-//! richieste, e un conteggio che non è stato fatto non è uno zero — la stessa
-//! regola per cui `n_hints` è nullable e non `NOT NULL DEFAULT 0`.
+//! `n_hints` è **quante piste sono state servite** durante quel tentativo, non
+//! quante lo studente ne ha chieste e non quante avrebbe potute chiederne. Un
+//! conteggio che non è stato fatto non è uno zero: è la stessa regola per cui
+//! `n_hints` è nullable e non `NOT NULL DEFAULT 0`.
+//!
+//! # Chi ha contato, e perché la difesa è un'altra
+//!
+//! In questa versione **nessun codice serve le piste e nessun codice le
+//! conta**: il percorso di prodotto è `cli::tenta`, che prende il valore da
+//! `--aiuto`, e in `kbs-exercise` non c'è una riga che parli di aiuto,
+//! indizi o piste. Quindi il conteggio è una **dichiarazione di chi amministra la
+//! sessione**, e scriverlo come «il sistema ha servito due piste» attribuirebbe
+//! a un programma una misura che solo una persona può fare. In un repository la
+//! cui tesi è la distinzione fra «ciò che il sistema ha fatto» e «ciò che è stato
+//! dichiarato», la parola sbagliata è la difesa che sembra più solida.
+//!
+//! Il perimetro è dichiarato, e con lui **chi può scrivere**. `registra` non
+//! scrive finché `Store::exercise(chi, corso, esercizio)` non passa, e quel
+//! predicato chiede `Relation::Teaches`: l'unico che può produrre questa riga è
+//! un docente che amministra il proprio scrutinio. `registra_persona` crea la
+//! persona dichiarata ma non le concede nessuna relazione, quindi lo studente non
+//! arriva qui — ed è già un caso provato per nome
+//! (`chi_non_insegna_il_corso_non_registra_niente`).
+//!
+//! La difesa che resta è di **integrità**, non di verità, ed è la stessa che il
+//! tipo dà: `n_hints` è un input di `derived_id()`, quindi due registrazioni
+//! della stessa istanza allo stesso istante con un conteggio diverso prendono id
+//! diversi invece di una `DuplicateId`; e il numero viaggia in `row_json` e
+//! quindi dentro la foglia, perciò due righe che differiscono solo per quei campi
+//! hanno foglie diverse e la catena le distingue. Un docente che mente sul
+//! proprio scrutinio scrive una riga falsa che la catena conserva con fedeltà:
+//! il registro dirà «due piste servite» anche quando non è vero, e nessun hash
+//! di questo progetto può accorgersene. È un limite dichiarato, non un difetto
+//! che una riga di prosa nasconde.
 //!
 //! **Se l'aiuto disponibile è ignoto, questo percorso non va usato.** Un
 //! tentativo di cui non si sa se c'erano piste si registra come una seconda
@@ -150,10 +180,13 @@ pub struct Tentativo {
     /// Deve essere un'istanza che esiste: una dimostrazione su un'istanza
     /// inesistente non è una misura, è una voce.
     pub instance: String,
-    /// Quante piste il sistema ha servito durante questo tentativo.
+    /// Quante piste sono state servite durante questo tentativo, secondo chi
+    /// amministra la sessione. È una **dichiarazione**, non un conteggio che
+    /// questo repository faccia: vedi «Chi ha contato» nel doc del modulo.
     ///
-    /// `0` è una misura — «nessuna pista servita» — e non un default. Chi non
-    /// sa contarle non chiama questo modulo: vedi il doc sopra.
+    /// `0` è una dichiarazione — «nessuna pista servita» — e non un default. Chi
+    /// non sa quante piste sono state servite non chiama questo modulo: vedi il
+    /// doc sopra.
     pub n_hints: u32,
     /// Il verdetto del verificatore deterministico su questa istanza.
     pub correct: bool,

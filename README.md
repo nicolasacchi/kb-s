@@ -153,6 +153,57 @@ persona (D4): un banco che indicizza non promote niente, e questo è il punto.
 `Ctrl-C` chiude: le richieste già ricevute finiscono, il listener chiude subito,
 e il processo esce con `0`.
 
+### Fuori dal checkout: `--web` e `--vendor`
+
+Il binario compilato porta con sé due percorsi assoluti: la cartella `web/`
+accanto al crate e `vendor/` alla radice del repository. Sono giusti per chi
+esegue dal checkout e **sbagliati appena il binario viene spostato** — in
+un'immagine Docker, in un pacchetto installato, in un `scp` su un'altra
+macchina — perché lì la directory in cui qualcuno ha compilato non esiste.
+Quando è così, i due percorsi vanno dichiarati:
+
+```sh
+./target/debug/kbs-serve \
+  --corpus /srv/kb/corpus \
+  --db /srv/kb/kb-s.sqlite3 \
+  --web /opt/kb-s/web \
+  --vendor /opt/kb-s/vendor
+```
+
+`--vendor` è la cartella che **contiene** `three/`, cioè
+`/opt/kb-s/vendor/three/three.module.min.js` (D15: il runtime è vendorizzato
+e servito dal binario, non scaricato dal client). `--web` è la cartella dei
+file dell'interfaccia.
+
+Senza i due flag il daemon fa esattamente quello che faceva prima, avvisa e
+parte: l'interfaccia mancante è un avviso perché l'API e gli artifact si
+servono lo stesso. **Con** i due flag la validazione è un rifiuto, e il
+rifiuto avviene all'avvio, non al primo uso:
+
+```sh
+$ ./target/debug/kbs-serve --corpus /srv/kb/corpus --web /opt/kb-s/interfaccia
+l'interfaccia /opt/kb-s/interfaccia non è una cartella.
+Il daemon non la crea: `--web` è una dichiarazione, e dichiarare un percorso
+che non esiste significa che il deployment è sbagliato — sostituirlo in
+silenzio servirebbe i file di un'altra installazione.
+…
+# codice 2 (rifiutato da una regola)
+```
+
+È la stessa regola del corpus mancante, e per la stessa ragione: il daemon non
+crea la cartella che gli hai dichiarato, perché una cartella vuota fa
+rispondere «non c'è» a tutto e la ragione diventerebbe invisibile. Lo stesso
+vale per `--vendor` senza `three/three.module.min.js`: senza quel file
+`Vendor::load` non fallisce, lascia il vendor senza runtime, e ogni artifact
+che chiama fuori dal proprio foglio risponderebbe `500` alla prima
+visualizzazione — un deployment rotto che si annuncia come un bug del
+materiale.
+
+`--web` e `--vendor` non sono obbligatori. Ripetuti sono un errore che li
+nomina, come `--corpus`, `--db` e `--listen`: una bandierina ripetuta è un
+comando ambiguo, e un override ambiguo servirebbe il percorso sbagliato in
+silenzio. Il testo completo è `kbs-serve --help`.
+
 ## La claim, che resta falsificabile
 
 > Vale la pena costruire `kb-s` **se e solo se**, in una classe che lo usa per un intero

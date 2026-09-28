@@ -45,17 +45,17 @@
 //! «perché la riga lo porta già, e duplicarlo qui aprirebbe la porta a due date
 //! che non coincidono». `unaided` è la stessa frase.
 //!
-//! La disciplina del modulo — dichiarata alla riga 116, sulle colonne del
-//! testimone: *una colonna inventata è peggio di una colonna vuota* — qui è
-//! soddisfatta dal payload e non da una colonna. Il test che la regola chiede,
-//! «la colonna è popolabile da ogni payload accettato?», ha una risposta che
+//! La disciplina del modulo — dichiarata sulle colonne del testimone, in
+//! `ExportRow::Witness`: *una colonna inventata è peggio di una colonna vuota* —
+//! qui è soddisfatta dal payload e non da una colonna. Il test che la regola
+//! chiede, «la colonna è popolabile da ogni payload accetato?», ha una risposta
 //! per `row_json` è sì e verificabile: **`unaided` è sempre presente nel JSON,
 //! dichiarato esplicitamente anche quando non è registrato.** `null` e «assente»
 //! sono due cose diverse nella forma canonica — la stessa proprietà che
 //! [`crate::canonical`] dichiara e che un test verifica — e quindi una riga con
-//! aiuto ignoto è **falsificabile**, non ambigua: chi ricalcola la foglia da un
-//! file in cui `unaided` è sparito ottiene un hash diverso da quello dichiarato,
-//! e l'errore è [`ExportError::RowLeafMismatch`], non una lettura comoda.
+//! aiuto ignoto è **falsificabile**, non ambigua: un file in cui `unaided` è
+//! sparito dalla colonna non si apre, e l'errore è
+//! [`ExportError::RowTextMismatch`], non una lettura comoda.
 //!
 //! Il costo di questa scelta è uno e va detto: chi riceve l'export legge
 //! `unaided` nel JSON, non in una colonna che si può indicizzare a mano. Chi
@@ -248,6 +248,17 @@ impl ChainExport {
     /// foglia non si apre — ed è la falsificazione più economica da tentare,
     /// perché il testo è leggibile e l'hash no.
     ///
+    /// Il confronto è con il **testo**, e questa è la parte che non è
+    /// ovvia: `canonicalize_str` dice soltanto che il documento è in forma
+    /// canonica, e a un documento in forma canonica si può togliere una chiave
+    /// o aggiungerne una senza che la forma cambi. Le due manomissioni non si
+    /// vedono dal valore tipizzato — un `Option` che manca è un `None`, e una
+    /// chiave che [`Observation`] non conosce viene ignorata — quindi la foglia
+    /// ricalcolata sul tipo resta quella dichiarata. Il documento della colonna
+    /// e quello che l'osservazione produce devono essere **lo stesso testo**, e
+    /// quando non lo sono la colonna porta un fatto che nessun hash copre:
+    /// l'errore è [`ExportError::RowTextMismatch`].
+    ///
     /// L'ordine **del file** è conservato, anche quando non è quello giusto:
     /// riordinare qui nasconderebbe a chi verifica un file con le righe
     /// scambiate, e lo scambio è esattamente ciò che la catena deve rendere
@@ -279,6 +290,13 @@ impl ChainExport {
                 line: at,
                 reason: e.to_string(),
             })?;
+            // Il confronto che chiude il caso, e che non è la ricanonicalizzazione
+            // del testo: è la ricanonicalizzazione **del valore**. Le due cose
+            // coincidono solo se la colonna è il testo che questo valore
+            // produce, ed è il testo che la foglia impegna.
+            if canonical_of(&parsed)? != *row {
+                return Err(ExportError::RowTextMismatch { line: at });
+            }
             if leaf_of(&parsed)? != *leaf {
                 return Err(ExportError::RowLeafMismatch {
                     line: at,
@@ -784,6 +802,9 @@ pub enum ExportError {
     #[error("riga {line}: `row_json` non è nella forma canonica che la foglia impegna")]
     RowNotCanonical { line: usize },
 
+    #[error("riga {line}: `row_json` è canonico ma non è il testo che l'osservazione produce: una chiave è stata tolta o aggiunta, e la foglia impegna un documento diverso da quello che la colonna dichiara")]
+    RowTextMismatch { line: usize },
+
     #[error("riga {line}: `row_json` non è un'osservazione: {reason}")]
     BadRow { line: usize, reason: String },
 
@@ -998,6 +1019,40 @@ mod tests {
         assert_eq!(viste, vec![Some(false), Some(true)]);
         let indizi: Vec<Option<u32>> = lette[0].1.iter().map(|o| o.n_hints).collect();
         assert_eq!(indizi, vec![Some(3), Some(0)]);
+    }
+
+    /// La colonna e il valore devono essere **lo stesso testo**, e il caso che
+    /// lo dimostra è una chiave **tolta**: un `Option` che manca vale `None`,
+    /// quindi il valore tipizzato è lo stesso, la foglia ricalcolata sul tipo è
+    /// quella dichiarata e il file si apriva. «Aiuto ignoto» e «riga di una
+    /// versione precedente della riga» erano la stessa cosa, che è esattamente
+    /// la confusione che la colonna è venuta a togliere.
+    #[test]
+    fn una_chiave_tolta_dalla_colonna_non_e_una_riga_aperta() {
+        let e = una_sessione(&[ignota(1)]);
+        let testo = e.to_text();
+        let riga = testo
+            .lines()
+            .find(|l| l.starts_with("observation|"))
+            .expect("riga di osservazione")
+            .rsplit_once('|')
+            .map(|(_, json)| json.to_owned())
+            .expect("la riga ha la colonna `row_json`");
+        assert!(riga.contains("\"n_hints\":null,"), "{riga}");
+
+        let tolta = riga.replace("\"n_hints\":null,", "");
+        assert_ne!(riga, tolta, "la chiave non era nella colonna");
+        // Il documento resta canonico, e questa è la parte che rende la
+        // manomissione economica: `RowNotCanonical` non la prende, e senza il
+        // confronto con il valore il file si aprirebbe.
+        assert_eq!(canonicalize_str(&tolta).unwrap(), tolta);
+
+        let manomesso = testo.replacen(&riga, &tolta, 1);
+        assert_ne!(manomesso, testo);
+        assert!(matches!(
+            ChainExport::from_text(&manomesso).unwrap().observations(),
+            Err(ExportError::RowTextMismatch { .. })
+        ));
     }
 
     #[test]

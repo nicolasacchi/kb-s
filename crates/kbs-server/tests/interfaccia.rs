@@ -570,6 +570,153 @@ fn file_dell_interfaccia() -> Vec<PathBuf> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Il montaggio: le pagine che `VISTE` raggiunge
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Il corpo del letterale `VISTE` di `app.js`.
+///
+/// Lo stesso patto di `rotte_dall_interfaccia`: se `app.js` smettesse di essere
+/// un oggetto letterale, qui uscirebbe un corpo vuoto e
+/// [`ogni_pagina_e_montata_in_viste`] direbbe che non c'è niente da montare —
+/// che è proprio la direzione in cui una guardia di montaggio non deve poter
+/// fallire. Per questo la non-vacuità è dichiarata nel test e non è implicita.
+fn corpo_viste(app: &str) -> &str {
+    let dopo = app
+        .split_once("const VISTE = {")
+        .expect("VISTE deve restare un oggetto letterale: il parser di questo test sa leggerlo")
+        .1;
+    dopo
+        .split_once("\n};")
+        .map(|(corpo, _)| corpo)
+        .expect("VISTE si chiude a fine riga")
+}
+
+/// Il nome con cui `app.js` importa ogni modulo di `web/pagine/`, per file.
+///
+/// La coppia è `(file, nome)` e nessuna delle due parti è scritta qui: il file
+/// lo dice l'import di `app.js`, e il nome è il nome che `app.js` dà alla
+/// pagina. È la stessa lezione che vale per `ROTTE`, applicata alla terza
+/// direzione: una tabella `file → vista` scritta a mano sarebbe verde finché
+/// qualcosa non si sposta, che è il difetto che questa guardia nasce per
+/// prendere.
+fn importate_da(app: &str) -> Vec<(String, String)> {
+    let mut fuori = Vec::new();
+    for riga in app.lines() {
+        let riga = riga.trim();
+        let (Some(aperto), Some(chiuso)) = (riga.find("import {"), riga.find('}')) else {
+            continue;
+        };
+        if chiuso < aperto {
+            continue;
+        }
+        let resto = &riga[chiuso + 1..];
+        let Some(da) = resto.find("./pagine/") else {
+            continue;
+        };
+        let specifica = &resto[da..];
+        let fine = specifica.find('"').expect("specifica chiusa");
+        let file = specifica["./pagine/".len()..fine].to_string();
+        for nome in riga[aperto + "import {".len()..chiuso].split(',') {
+            let nome = nome.trim();
+            if !nome.is_empty() {
+                fuori.push((file.clone(), nome.to_string()));
+            }
+        }
+    }
+    fuori
+}
+
+/// I moduli di `web/pagine/`, per nome di file, in ordine.
+///
+/// È il filesystem la fonte e non un elenco: un modulo nuovo in quella
+/// cartella entra nella guardia senza che nessuno la modifichi, che è il
+/// senso in cui questa guardia «fallisce per costruzione» e non per caso.
+fn pagine() -> Vec<String> {
+    let mut fuori: Vec<String> = std::fs::read_dir(radice_web().join("pagine"))
+        .expect("web/pagine/ si legge: è la cartella delle pagine")
+        .filter_map(|voce| voce.ok())
+        .filter_map(|voce| {
+            let path = voce.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("js") {
+                return None;
+            }
+            path.file_stem().map(|s| s.to_string_lossy().into_owned())
+        })
+        .collect();
+    fuori.sort();
+    fuori
+}
+
+/// Il corpo di una funzione dichiarata in `app.js`, se quella funzione c'è.
+///
+/// Le graffe si contano, e si contano anche quelle che stanno dentro una
+/// stringa: è un parser povero e dichiarato povero, come quello di
+/// `rotte_dall_interfaccia`. Una graffe in una stringa può accorciare il corpo
+/// e far dire alla guardia che una pagina non è montata — la direzione in cui
+/// un difetto di montamento è invisibile, quindi quella giusta in cui fallire.
+fn corpo_funzione<'a>(app: &'a str, nome: &str) -> Option<&'a str> {
+    let dopo = app.split_once(format!("function {nome}(").as_str())?.1;
+    let aperta = dopo.find('{')?;
+    // La graffe di apertura è **già contata**: si guarda da quella in poi, e il
+    // corpo finisce quando il conto torna a zero. Contare da zero senza
+    // l'apertura finirebbe al primo blocco interno della funzione, che è un
+    // corpo più corto e sembra funzionare finché non manca una pagina.
+    let mut chiuse = 1i32;
+    for (i, c) in dopo[aperta + 1..].char_indices() {
+        match c {
+            '{' => chiuse += 1,
+            '}' => {
+                chiuse -= 1;
+                if chiuse == 0 {
+                    return Some(&dopo[aperta + 1..aperta + 1 + i]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Gli identificatori di un pezzo di JavaScript, chiamati o no.
+fn identificatori(s: &str) -> Vec<String> {
+    let mut fuori = Vec::new();
+    let mut corrente = String::new();
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '$' {
+            corrente.push(c);
+        } else if !corrente.is_empty() {
+            fuori.push(std::mem::take(&mut corrente));
+        }
+    }
+    if !corrente.is_empty() {
+        fuori.push(corrente);
+    }
+    fuori
+}
+
+/// I nomi che un pezzo di JavaScript **chiama**: identificatore seguito da `(`.
+///
+/// La guardia ha bisogno delle due liste e per motivi opposti. Le **chiamate**
+/// dicono che una pagina è montata — `lettore({…})` dentro `VISTE` è un montaggio,
+/// `lettore` in una riga di import non lo è. Gli **identificatori** dicono da dove
+/// cominciare a seguire il grafo delle funzioni di `app.js`, perché una voce di
+/// `VISTE` può essere una funzione che si chiama solo dal corpo, e non dalla voce.
+fn chiamati(s: &str) -> Vec<String> {
+    let mut fuori = Vec::new();
+    let mut corrente = String::new();
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '$' {
+            corrente.push(c);
+        } else if c == '(' && !corrente.is_empty() {
+            fuori.push(std::mem::take(&mut corrente));
+        } else {
+            corrente.clear();
+        }
+    }
+    fuori
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // I test
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -686,6 +833,107 @@ async fn ogni_modulo_che_la_pagina_carica_e_servito() {
     );
 }
 
+/// La terza direzione: che ogni pagina sia **montata**.
+///
+/// Le altre due sono coperte da due test, e sono coperte bene.
+/// `ogni_rotta_dell_interfaccia_e_una_rotta_del_server` va da `ROTTE` al router
+/// vero; `ogni_modulo_che_la_pagina_carica_e_servito` parte da `index.html` e
+/// segue il grafo degli import fino in fondo. Nessuna delle due vede un modulo
+/// che nessuno importa, e per una ragione strutturale: il grafo degli import
+/// parte da `index.html` e raggiunge `app.js`, e da lì un modulo entra solo se
+/// `app.js` lo importa. Un file che nessuno importa è invisibile a entrambe le
+/// direzioni, che è il buco in cui `pagine/padronanza.js` è rimasta: 329 righe,
+/// le rotte che chiama tutte quante provate, e nessuna via per aprirla.
+///
+/// «Montata» vuol dire **chiamata da una voce di `VISTE`**: il nome della pagina
+/// compare in una chiamata dentro `VISTE`, o dentro una funzione che `VISTE`
+/// nomina. Non basta che il modulo sia importato — un import senza una voce che
+/// lo chiama è una pagina che il browser scarica e non mostra mai, ed è una
+/// pagina che sembra installata.
+///
+/// Il predicato è costruito come [`rotte_dall_interfaccia`]: i due lati si
+/// leggono dai sorgenti e non si scrivono qui. Le pagine le dice il filesystem,
+/// i nomi che `app.js` dà alle pagine li dice l'import, le voci le dice `VISTE`.
+#[test]
+fn ogni_pagina_e_montata_in_viste() {
+    let app = std::fs::read_to_string(radice_web().join("app.js")).expect("web/app.js deve esistere");
+    let viste = corpo_viste(&app);
+    let moduli = pagine();
+
+    // La non-vacuità, prima di guardare qualcosa: senza questi due, un parser
+    // rotto e una cartella vuota passerebbero lo stesso, e la guardia sarebbe
+    // verde per la ragione sbagliata — quella che questo file dichiara la
+    // peggiore di tutte, un test che passa perché non ha trovato niente da
+    // confrontare.
+    assert!(
+        moduli.len() >= 5,
+        "`web/pagine/` contiene {} moduli, che sono pochi: la guardia starebbe guardando \
+         quasi niente",
+        moduli.len()
+    );
+    let voci = viste.lines().filter(|l| l.contains(':')).count();
+    assert!(
+        voci >= 5,
+        "da `VISTE` sono uscite {voci} voci: il parser non sta più leggendo quello che crede \
+         di leggere"
+    );
+
+    // Le chiamate raggiunte da `VISTE`: le voci dell'oggetto, e poi tutto ciò
+    // che le funzioni nominate da quelle voci chiamano, e così via. Il ciclo
+    // serve perché una voce può essere una funzione che chiama un'altra
+    // funzione, e fermarsi al primo giro sarebbe fermarsi per caso.
+    let mut chiamate: Vec<String> = chiamati(viste);
+    let mut raggiunte: Vec<String> = Vec::new();
+    let mut da_vedere: Vec<String> = identificatori(viste);
+    while let Some(nome) = da_vedere.pop() {
+        if raggiunte.contains(&nome) {
+            continue;
+        }
+        raggiunte.push(nome.clone());
+        let Some(corpo) = corpo_funzione(&app, &nome) else {
+            continue;
+        };
+        for altro in identificatori(corpo) {
+            if !raggiunte.contains(&altro) {
+                da_vedere.push(altro);
+            }
+        }
+        for altro in chiamati(corpo) {
+            if !chiamate.contains(&altro) {
+                chiamate.push(altro);
+            }
+        }
+    }
+
+    let importate = importate_da(&app);
+    for pagina in &moduli {
+        let file = format!("{pagina}.js");
+        let nomi: Vec<&str> = importate
+            .iter()
+            .filter(|(f, _)| f == &file)
+            .map(|(_, n)| n.as_str())
+            .collect();
+        assert!(
+            !nomi.is_empty(),
+            "`pagine/{file}` non è importata da `app.js`: il browser non la chiederà mai, e \
+             un file che nessuno importa è un file che nessuno può aprire"
+        );
+        for nome in nomi {
+            assert!(
+                chiamate.iter().any(|c| c.as_str() == nome),
+                "`pagine/{file}` è importata come `{nome}` ma nessuna voce di `VISTE` la \
+                 chiama: la pagina esiste, le sue rotte sono provate tutte, e non si raggiunge \
+                 da nessuna parte"
+            );
+        }
+    }
+    // E non c'è un terzo pavimento: se il seguito delle funzioni si fermasse al
+    // primo giro, il ciclo sopra direbbe già che `coda`, `registri` e
+    // `padronanza` non sono chiamate, con il nome della pagina nel messaggio.
+    // Un asserto che non può fallire è rumore, e questa guardia ne ha già due
+    // che non possono non fallire quando il soggetto non c'è.
+}
+
 /// Le rotte che questa interfaccia chiama con una `POST`.
 ///
 /// Sono dichiarate qui perché il metodo è parte del contratto: `ratifica`,
@@ -753,12 +1001,25 @@ async fn ogni_rotta_dell_interfaccia_e_una_rotta_del_server() {
     // `ROTTE.quotaPadronanza` — un `throw` a runtime, invisibile finché nessuno
     // apre quella pagina.
     //
-    // Il punto prima di `get` esclude `URLSearchParams.get`, che ha la stessa
-    // firma e non chiede una rotta.
+    // I **verbi**, invece, si scrivono qui, e sono quattro: `get` e `post` da
+    // `api.js`, `percorso` e `percorsoConQuery` da `rotte.js`. È l'unico elenco
+    // scritto a mano in questa guardia, e resta uno solo perché i verbi sono in
+    // tutto quattro e sono gli unici che prendono il nome di una rotta.
+    //
+    // Un elenco sbagliato fa lo stesso danno nelle due direzioni, ed è per
+    // questo che va tenuto corto e dichiarato. Un verbo che **manca** lascia
+    // passare un nome inesistente: `percorso` non era nella lista, e `eventi` e
+    // `three` sono chiamati per nome senza passare da `get`/`post` — la prima
+    // delle due è una `throw` sincrona che al caricamento non incontra nessun
+    // `catch` e non lascia montare nessuna vista. Un verbo che **non esiste**
+    // promette un wrapper che nessuno ha scritto: era `scarica`, la cui unica
+    // occorrenza in tutta `web/` era la prosa di questo stesso file, e la
+    // rotta `export` non ha un bottone. Quindi `scarica` non si scrive: si
+    // toglie, e la promessa che faceva è stata cancellata dal commento.
     let dichiarate: Vec<&str> = rotte.iter().map(|(n, _)| n.as_str()).collect();
     for (file, testo) in file_come_escaped() {
         for (n_riga, riga) in testo.lines().enumerate() {
-            for verbo in ["get", "post", "scarica"] {
+            for verbo in ["get", "post", "percorso", "percorsoConQuery"] {
                 let ago = format!("{verbo}(");
                 let mut da = 0;
                 while let Some(p) = riga[da..].find(&ago) {
@@ -772,8 +1033,9 @@ async fn ogni_rotta_dell_interfaccia_e_una_rotta_del_server() {
                     if let Some(nome) = nome {
                         assert!(
                             dichiarate.contains(&nome),
-                            "{file}:{} chiama `{verbo}` e `rotte.js` non dichiara \
-                             `{nome}`: a runtime `percorso` lancia e la pagina muore",
+                            "{file}:{} chiama `{verbo}(\"{nome}\")` e `rotte.js` non dichiara \
+                             `{nome}`: a runtime il costruttore del percorso lancia «rotta \
+                             sconosciuta», e quello che si perde è l'intera pagina",
                             n_riga + 1
                         );
                     }

@@ -1,0 +1,11 @@
+# Il contesto di build non deve portarsi dietro il repository intero: `target/`
+# da solo e' piu' grande del sorgente di due ordini di grandezza, e rimandarlo
+# dentro l'immagine fa fallire il build per spazio, non per un difetto.
+target/
+.git/
+.gitignore
+
+# Il banco di prova e la sua CI: non servono a produrre il daemon, e dentro
+# l'immagine costerebbero di ricompilare otto crate in debug.
+.github/
+*.log
