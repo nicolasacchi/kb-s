@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Matematica: la domanda di ottimizzazione sotto un vincolo</title>
+<meta name="kb-argument" content="argomenti/11-matematica.html">
+<meta name="kb-course" content="ite-turismo-secondo-biennio">
+<meta name="kb-family" content="matematica">
+<meta name="kb-state" content="in-corso">
+<meta name="kb-origin" content="human">
+<meta name="kb-ancoraggio" content="prescritto">
+</head>
+<body>
+<main>
+<h1 id="titolo">Matematica: la domanda di ottimizzazione sotto un vincolo</h1>
+<p class="riassunto">Una barca con un numero di posti, due tipi di escursione, e guide che non bastano: quale ripartizione massimizza il ricavo, e quale dei due vincoli è quello che decide.</p>
+
+<ul class="prerequisiti">
+<li data-prereq="argomenti/09-economia-aziendale.html">09 economia aziendale: il costo e il prezzo</li>
+<li data-prereq="argomenti/10-geografia-turistica.html">10 geografia turistica: il territorio come fattore di produzione</li>
+</ul>
+
+<section class="ancoraggio">
+<h2 id="ancoraggio">Che cosa prescrive il ministero, e che cosa no</h2>
+<p>Questo è <strong>l'unico argomento del grafo che può dichiararsi prescritto</strong>, ed è prescritto in un modo preciso e limitato: la <strong>disciplina</strong> e il <strong>monte ore</strong> vengono dal quadro orario. Matematica è prescritta nel secondo anno dell'ITE per <strong>132 ore annue</strong>, 4 ore settimanali (DPR 15 marzo 2010 n. 88, Allegato B, quadro orario dell'indirizzo Turismo). Non è la disciplina più corposa del quadro — Lingua e letteratura italiana ha le stesse 132 ore, e le due lingue e culture straniere ne hanno 198 in totale — ma è l'unica il cui <em>contenuto</em> questo corpus usa per costruire un argomento che si verifica meccanicamente.</p>
+<p>Anche qui la distanza va detta, perché vale in tutto il grafo: nel secondo anno l'indirizzo Turismo non ha <strong>nessuna disciplina turistica</strong> nel quadro orario, e le cinque discipline di indirizzo hanno celle vuote nel primo e nel secondo anno. La disciplina è prescritta per intero; <strong>l'uso che ne facciamo — l'ottimizzazione sotto vincolo applicata alla gestione di una barca da escursione — è una scelta didattica</strong> dentro quelle ore, e lo dichiara. Una disciplina prescritta non è un argomento: è la condizione perché un argomento esista.</p>
+<p><span class="nota">Ancoraggio di questo argomento: <strong>PRESCRITTO</strong> quanto alla disciplina e al monte ore (Matematica, 132 h nel secondo anno, DPR 88/2010 Allegato B). L'argomento non è «una parte del programma ministeriale»: è il modo in cui questo corpus usa quattro ore settimanali che ci sono, e il contesto turistico dell'esercizio è scelta didattica dichiarata.</span></p>
+</section>
+
+<section>
+<h2 id="la-domanda">La domanda a cui devi saper rispondere</h2>
+<p>Una barca da escursione ha trenta posti. L'escursione A occupa <strong>tre posti per gruppo</strong> e rende <strong>600 euro per gruppo</strong>; l'escursione B ne occupa due e rende 450. Ci sono <strong>dodici guide</strong>, e una guida può seguire un solo gruppo. Quanti gruppi di A e quanti di B?</p>
+<p>La domanda non ha una risposta che si indovina guardando il numero più grande, e non è una domanda di aritmetica. Ha una risposta che dipende da <strong>quale dei due vincoli scade per primo</strong>: se la scarsità è di posti si riempie la barca con gruppi piccoli, se la scarsità è di guide si fanno gruppi grandi e la barca viaggia con posti liberi. Sono due economie opposte, danno ricavi diversi, e capire quale delle due sia il caso <em>è</em> l'argomento — perché le due risposte si distinguono solo dopo aver guardato i vincoli.</p>
+</section>
+
+<section>
+<h2 id="la-struttura">Le quattro mosse dell'ottimizzazione</h2>
+<ol class="passi">
+<li><strong>Le variabili.</strong> Due numeri interi non negativi: quanti gruppi di A, quanti gruppi di B. <em>Interi</em>, perché un terzo di gruppo non esiste, ed è un dettaglio che decide la risposta.</li>
+<li><strong>I vincoli.</strong> Ogni riga è un «non puoi superare»: i posti occupati non superano i posti disponibili, i gruppi non superano le guide. Un vincolo che non si attiva è un vincolo che non c'è, e questo è il punto in cui i due vincoli si distinguono.</li>
+<li><strong>L'obiettivo.</strong> <strong>Una sola quantità</strong> da massimizzare — il ricavo totale. Ed è qui che sta la trappola: massimizzare il ricavo totale non è la stessa cosa che massimizzare il ricavo <em>per posto</em>. Il totale sceglie il gruppo che rende di più, il per posto sceglie quello che rende di più a parità di posto. Nell'esercizio le due risposte sono diverse, e quella sbagliata è più attraente della giusta.</li>
+<li><strong>La verifica.</strong> Si risolve per <strong>enumerazione dei vertici</strong>: un massimo lineare su una regione poligonale convessa cade su un vertice, e in due variabili i vertici sono tre o quattro. Non serve la calculus: si provano gli angoli e si tiene il maggiore. È questo il motivo per cui l'esercizio ha una risposta che un correttore meccanico può dichiarare giusta o sbagliata senza chiedere l'opinione di nessuno.</li>
+</ol>
+<p class="claim" data-claim="In due variabili con vincoli lineari il massimo cade su un vertice della regione ammissibile, e quindi si trova enumerando pochi casi: è ciò che rende l'esercizio verificabile senza giudizio umano." data-claim-id="cl_11_1" data-claim-span="span-11-1" data-stato="supported" data-claim-emitter="teacher:person_0001"><span id="span-11-1">Con due variabili e vincoli lineari il massimo cade su un <strong>vertice</strong> della regione ammissibile, e in questo caso i vertici sono tre: l'origine, l'intersezione fra i due vincoli se esiste, e i due punti in cui un vincolo incontra un asse. <strong>Bastano quattro prove</strong>, nessun calcolo e nessun giudizio: ed è per questo che la risposta di questo esercizio si può controllare meccanicamente, mentre una spiegazione del perché non si può.</span></p>
+</section>
+
+<section>
+<h2 id="l-equivoco">L'equivoco che costa di più</h2>
+<p>L'equivoco è <strong>massimizzare il ricavo per posto invece del ricavo totale</strong>. Il ragionamento «A rende 600 su 3 posti, cioè 200 a posto; B rende 450 su 2 posti, cioè 225 a posto; quindi solo B» è <em>ben ragionato e sbagliato</em>, perché confronta due medie e poi le usa come se fossero il totale. Con dodici guide non si possono fare dodici gruppi di B: il vincolo che scade è quello delle guide, e la risposta che ne segue è tutta un'altra. Nell'esercizio, nell'istanza in cui le guide sono poche, la risposta corretta è <strong>dieci gruppi di A</strong> — il tipo che il ragionamento «per posto» dichiarava il peggiore.</p>
+<p>Il secondo equivoco è l'opposto e più subdolo: credere che la risposta sia sempre «tutto pieno». Può succedere che la ripartizione ottima lasci posti liberi, e in quel caso quei posti non sono un errore: sono la prova che il vincolo delle guide è scaduto per primo, perché non esiste un gruppo abbastanza piccolo da farceli entrare. <strong>Riconoscere un ottimo con posti inutilizzati è metà dell'argomento</strong>, ed è la metà che l'esercizio chiede per iscritto.</p>
+</section>
+
+<section>
+<h2 id="esempio">Esempio lavorato</h2>
+<p><strong>Il caso.</strong> Trenta posti, dodici guide. A occupa tre posti e rende 600; B ne occupa due e rende 450. Variabili <em>x</em> = gruppi di A, <em>y</em> = gruppi di B, intere non negative.</p>
+<p><strong>Le variabili.</strong> Due interi non negativi. <strong>I vincoli.</strong> Posti: 3<em>x</em> + 2<em>y</em> ≤ 30. Guide: <em>x</em> + <em>y</em> ≤ 12. <strong>L'obiettivo.</strong> Massimizzare 600<em>x</em> + 450<em>y</em>.</p>
+<p><strong>Il cammino, applicando le quattro mosse.</strong> La retta dei posti e quella delle guide si incontrano nel punto <strong>(6, 6)</strong>: dodici gruppi, trenta posti, entrambi i vincoli esattamente esauriti. Gli altri due angoli sono (12, 0) e (0, 12) — e (12, 0) <em>non è ammissibile</em>, perché dodici gruppi da tre posti ne chiederebbero trentasei. Restano tre vertici da confrontare: <strong>(0, 0)</strong> con ricavo 0; <strong>(6, 6)</strong> con 6 600 e <strong>(0, 12)</strong> con 5 400. Vince (6, 6).</p>
+<p><strong>La risposta.</strong> Sei gruppi di A e sei di B, ricavo 6 600, barca piena e tutte le guide impiegate. Ma il numero 6 600 dice anche una seconda cosa, ed è quella che l'esercizio chiede di far notare: se le guide fossero state <strong>dieci</strong>, il vertice (6, 6) sarebbe sparito — dodici gruppi non si potrebbero fare — e il migliore sarebbe <strong>(10, 0)</strong>: dieci gruppi di A, ricavo <strong>6 000</strong>, con <strong>trenta posti occupati su trenta</strong> ma due guide disimpiegate. E se le guide fossero state venti, con trenta posti, il migliore sarebbe <strong>(0, 15)</strong>: quindici gruppi di B per 6 750, con la barca piena e cinque guide libere. <strong>Stessi posti, guide diverse, tre risposte diverse</strong>, ed è la dimostrazione che la risposta dipende dal vincolo e non dalle sole quantità.</p>
+</section>
+
+<section class="esercizi">
+<h2 id="verifica">Come si verifica che l'hai capito</h2>
+<p>Qui la verifica non è una domanda: è un <strong>esercizio con risposta determinabile meccanicamente</strong>. I dati cambiano da un'istanza all'altra e la risposta si controlla senza giudizio umano. Non si chiede «quanto è il ricavo massimo?» — un numero si può indovinare, e un numero indovinato non dice niente. Si chiede <strong>quale ripartizione scegli e quale vincolo ti ha fermato</strong>: la scelta fra alternative dichiarate è la risposta verificabile, e la motivazione è ciò che distingue chi ha capito da chi ha indovinato. Le tre istanze condividono la stessa tabella dei rendimenti e cambiano solo posti e guide, così la risposta non si può imparare a memoria.</p>
+
+<div class="esercizio" data-esercizio="ex_11_1" data-famiglia="ottimizzazione-due-variabili" data-checker="set">
+<p><strong>La barca e i due vincoli.</strong> Una barca da escursione ha <em>C</em> posti. L'escursione A occupa <strong>3 posti</strong> per gruppo e rende <strong>600 euro</strong> per gruppo; l'escursione B ne occupa <strong>2</strong> e rende <strong>450</strong>. Ci sono <em>G</em> guide, una per gruppo, e una guida non può seguire due gruppi. Per ciascuna istanza indica <strong>la ripartizione ottima</strong> (quanti gruppi di A e quanti di B) e <strong>quale vincolo è attivo</strong> in quella soluzione: <code>posti</code>, <code>guide</code>, oppure <code>entrambi</code>.</p>
+<p class="istanza" data-seed="s1">C 31 · G 10</p>
+<p class="istanza" data-seed="s2">C 30 · G 12</p>
+<p class="istanza" data-seed="s3">C 30 · G 20</p>
+<p class="atteso" data-atteso="s1:10A+0B:guide, s2:6A+6B:entrambi, s3:0A+15B:posti">Risposta attesa: tre elementi, uno per istanza, nell'ordine s1, s2, s3 — l'ordine non conta.</p>
+<p class="note">La risposta si confronta come insieme di tre stringhe: il confronto è meccanico e non tollera né abbreviazioni né spazi superflui, quindi la forma va dichiarata prima e non dopo.</p>
+</div>
+
+<p><strong>Perché le tre istanze non hanno la stessa risposta, e perché è questo che le rende un esercizio e non un quiz.</strong> In <code>s1</code> ci sono <strong>trentuno</strong> posti e dieci guide: dodici gruppi non si possono fare, il vertice misto non esiste, e la soluzione ottima è <strong>solo A</strong> con ricavo 6 000 — dieci gruppi da tre posti, cioè <strong>trenta posti occupati su trentuno</strong>, e il posto che resta è troppo piccolo per completare un gruppo. Il vincolo attivo è quello delle <strong>guide</strong>. In <code>s2</code> i posti tornano a trenta e le guide sono dodici: il vertice misto rientra e la risposta è <strong>6 A e 6 B</strong>, dove <strong>entrambi</strong> i vincoli scadono nello stesso punto. In <code>s3</code> le guide sono venti e non scadono mai: il limite è la barca, la risposta è <strong>solo B</strong>, quindici gruppi che riempiono i trenta posti, e restano cinque guide disimpiegate — qui il vincolo attivo è quello dei <strong>posti</strong>. <strong>Tre istanze, tre risposte diverse e tre vincoli attivi diversi</strong>, e in <code>s1</code> e in <code>s3</code> le risposte sono opposte. Un esercizio con una sola istanza misurerebbe la memoria; con tre, a struttura identica, misura il ragionamento.</p>
+
+<p><strong>Che cosa il correttore controlla, e che cosa no.</strong> Controlla due cose per ciascuna istanza: che la ripartizione scelta sia quella che massimizza il ricavo, e che il vincolo dichiarato sia quello che lì scade. Sono confronti, non giudizi, e il primo lo fa il valore dell'obiettivo calcolato dall'esercizio, non l'opinione del correttore. <strong>Non controlla la motivazione.</strong> Una risposta data a caso ha probabilità bassa ma non nulla, e non è un <code>1/k</code> calcolabile a tavolino, perché il formato non è una scelta fra un numero finito di alternative dichiarate: va misurata sulla classe, non calcolata. Ed è per questo che il metro della padronanza è una soglia aggregata e non un giudizio sul compito singolo. La parte che il software non sa valutare — il <em>perché</em> della scelta — è dichiarata come limite nell'argomento 12, e non aggirata qui.</p>
+</section>
+</main>
+<template id="kb-kbprompt">
+## GUARDIAN
+Prima di leggere: questo è l'unico argomento del corpus la cui disciplina e il cui monte ore sono prescritti per intero — Matematica, 132 ore nel secondo anno, 4 a settimana (DPR 15 marzo 2010 n. 88, Allegato B). Ma una disciplina prescritta non è un argomento: l'uso che ne facciamo, cioè l'ottimizzazione sotto vincolo su una barca da escursione, è una scelta didattica dentro quelle ore, e va detto. Nel secondo anno l'indirizzo Turismo non ha discipline turistiche nel quadro orario.
+
+## PREREQUISITI
+09 economia aziendale, perché il ricavo da massimizzare è la quantità dell'argomento sul prezzo; 10 geografia turistica, perché il numero di posti è una risorsa fissa. Matematica di secondo anno: equazioni di primo grado e insiemi.
+
+## OBIETTIVI
+Tradurre una situazione in variabili, vincoli e obiettivo, e dire quale dei vincoli scade per primo. Distinguere il massimo del ricavo totale dal massimo del ricavo per posto, e dire perché il secondo è l'equivoco. Riconoscere un ottimo che lascia posti liberi e spiegarlo. Risolvere per enumerazione dei vertizi senza calculus.
+
+## SCALA
+Livello 4: in un'istanza in cui l'ottimo lascia posti inutilizzati, sa dire che il vincolo attivo è un altro e nominarlo; e in un'istanza nuova con la stessa struttura e dati diversi, sceglie la ripartizione oppia rispetto a quella di partenza. Livello 3: risolve un'istanza enumerando i vertici, scrive la ripartizione e nomina il vincolo attivo. Livello 2: distingue i due vincoli in un caso già impostato e sa dire che «tutto pieno» non è sempre la risposta. Livello 1: distingue la variabile dalla quantità limitata.
+
+## EQUIVOCI
+Il primo, ed è quello che il correttore non intercetta: massimizzare il ricavo per posto invece del totale. Il ragionamento è sensato e la risposta è sbagliata, perché confronta due medie e le usa come se fossero il totale. Nell'istanza con poche guide la risposta giusta è proprio il tipo che «per posto» dichiarava il peggiore. Il secondo: credere che la risposta sia sempre «tutto pieno». Un ottimo con posti liberi significa che un vincolo è scaduto prima di quello dei posti. Il terzo: dimenticare che le variabili sono intere; un terzo di gruppo non esiste, e le variabili continue danno una risposta non realizzabile.
+
+## ESEMPIO-LAVORATO
+Trenta posti, dodici guide, A occupa 3 posti e rende 600, B ne occupa 2 e rende 450. Variabili x e y intere non negative; vincoli 3x + 2y ≤ 30 e x + y ≤ 12; obiettivo massimizzare 600x + 450y. I vertici sono (0,0), (6,6) e (0,12): (12,0) non è ammissibile perché dodici gruppi da tre posti ne chiederebbero trentasei. Ricavi 0, 6 600 e 5 400: vince (6,6). Con dieci guide il vertice misto sparisce e vince (10,0) per 6 000, con trenta posti occupati e due guide libere; con venti guide vince (0,15) per 6 750, barca piena e cinque guide libere. Stessi posti, tre risposte diverse: la risposta dipende dal vincolo che scade.
+
+## VERIFICA
+Un esercizio con tre istanze a dati diversi e risposta controllata meccanicamente, non un numero da indovinare ma una scelta motivata: per ogni istanza la ripartizione ottima e il nome del vincolo attivo. Le tre istanze non hanno la stessa risposta per costruzione, con la stessa tabella dei rendimenti e posti e guide diversi: s1 ha dieci guide e vuole solo A, s2 ne ha dodici e vuole 6 A e 6 B, s3 ne ha venti e vuole solo B. In s1 la risposta corretta è il tipo che il ragionamento «per posto» dichiarava il peggiore. Il correttore confronta il valore dell'obiettivo e il nome del vincolo: due confronti, non un giudizio. Una risposta data a caso ha probabilità bassa e non nulla, e va misurata sulla classe, non calcolata.
+
+## LIMITE
+Non sa derivare, non conosce i moltiplicatori di Lagrange, non sa rappresentare la regione ammissibile e non distingue un problema lineare da uno non lineare. Lavora solo con due variabili e variabili intere piccole: sotto i venti gruppi l'enumerazione regge, sopra no. Non sa che cosa succeda se i dati sono sbagliati, perché non sa probabilità. E non sa la cosa più importante: il correttore verifica la ripartizione e non il perché della scelta.
+</template>
+</body>
+</html>
