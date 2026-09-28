@@ -465,3 +465,73 @@ fn il_conteggio_di_piste_si_dichiara_e_non_ha_un_default() {
     let s = Store::open(&db).expect("il database si riapre");
     assert_eq!(righe(&s), 0, "un rifiuto non lascia una riga");
 }
+
+/// La giunzione: un tentativo di prodotto è la prova che il metro conta.
+///
+/// Fin qui i due mezzi sono provati separatamente — `pratica` scrive la riga
+/// non assistita, `padronanza` la conta — ma nessuno dei due test attraversava
+/// l'altro. Il difetto che questa prova copre è quindi possibile e avrebbe
+///passato tutto: una colonna che nessuno scrive, o un metro che legge una
+/// forma di prova che `pratica` non produce mai. Le due metà verrebbero verdi
+/// e la claim resterebbe non calcolabile.
+///
+/// Il numero non puo' essere `Proven` qui, e non e' un difetto: una sola prova
+/// su un esercizio non raggiunge la soglia. Ciò che si prova e' che la prova
+/// **entra nel conto** — `proved` sale a uno — e che una riga assistita non ci
+/// entra. Un test che si fermasse a `!is_proven()` passerebbe anche con il
+/// metro che ignora ogni prova.
+#[test]
+fn un_tentativo_di_prodotto_e_la_prova_che_il_metro_conta() {
+    let mut s = banco();
+    pratica::registra_in_una_sessione(
+        &mut s,
+        &docente(),
+        tentativo(0),
+        "tentativo non assistito",
+    )
+    .expect("il tentativo entra");
+
+    let righe = s
+        .mastery_for(&marco(), &marco(), &corso(), Millis(T0 + 1))
+        .expect("lo studente legge il proprio metro");
+    let riga = righe
+        .iter()
+        .find(|r| r.argument == argomento())
+        .expect("l'argomento su cui si e' lavorato ha una riga di metro");
+
+    assert_eq!(
+        riga.proved_exercises, 1,
+        "una risposta senza aiuto su un esercizio e' una prova, e il metro la conta: \
+         è questo il passaggio che chiude la claim"
+    );
+    assert_eq!(riga.proofs.len(), 1, "e la prova che ha usato è quella, non un'altra");
+    assert!(
+        !riga.verdict.is_proven(),
+        "una prova sola non raggiunge la soglia, e dirlo è il verdetto giusto"
+    );
+
+    // La metà negativa, che è quella che rende la colonna utile: la stessa
+    // risposta, la stessa istanza, due piste servite — e il metro non la vede.
+    // Se la contasse, la soglia si riempirebbe con quello che il sistema ha
+    // già fatto per lo studente.
+    let mut s2 = banco();
+    pratica::registra_in_una_sessione(
+        &mut s2,
+        &docente(),
+        tentativo(3),
+        "tentativo assistito",
+    )
+    .expect("il tentativo assistito entra anche lui");
+    let righe2 = s2
+        .mastery_for(&marco(), &marco(), &corso(), Millis(T0 + 1))
+        .expect("il metro anche quando non ha niente da contare");
+    let riga2 = righe2
+        .iter()
+        .find(|r| r.argument == argomento())
+        .expect("la riga c''e anche quando il conto e' zero");
+    assert_eq!(
+        riga2.proved_exercises, 0,
+        "una risposta con due piste non e' una dimostrazione: è la coda di practice"
+    );
+    assert!(riga2.proofs.is_empty(), "e il metro non la elenca fra le prove usate");
+}
