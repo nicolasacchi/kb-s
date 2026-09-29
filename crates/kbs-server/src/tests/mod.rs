@@ -154,13 +154,16 @@ impl Scuola {
                     Relation::Teaches,
                 ),
             ] {
-                store.add_relation(&CourseRelation {
-                    person,
-                    course,
-                    relation,
-                    since: Millis(T0),
-                    until: None,
-                })?;
+                store.add_relation(
+                    &CourseRelation {
+                        person: person.clone(),
+                        course,
+                        relation,
+                        since: Millis(T0),
+                        until: None,
+                    },
+                    &person,
+                )?;
             }
             Ok(())
         })

@@ -144,13 +144,16 @@ fn scuola() -> Scuola {
             (docente.clone(), corso.clone(), Relation::Teaches),
             (altro_docente.clone(), altro_corso.clone(), Relation::Teaches),
         ] {
-            store.add_relation(&CourseRelation {
-                person,
-                course,
-                relation,
-                since: Millis(T0),
-                until: None,
-            })?;
+            store.add_relation(
+                &CourseRelation {
+                    person: person.clone(),
+                    course,
+                    relation,
+                    since: Millis(T0),
+                    until: None,
+                },
+                &person,
+            )?;
         }
         for s in &studenti {
             store.upsert_person(&Person {
@@ -158,13 +161,16 @@ fn scuola() -> Scuola {
                 display_name: format!("Studente {}", s.as_str()),
                 created_at: Millis(T0),
             })?;
-            store.add_relation(&CourseRelation {
-                person: s.clone(),
-                course: corso.clone(),
-                relation: Relation::EnrolledIn,
-                since: Millis(T0),
-                until: None,
-            })?;
+            store.add_relation(
+                &CourseRelation {
+                    person: s.clone(),
+                    course: corso.clone(),
+                    relation: Relation::EnrolledIn,
+                    since: Millis(T0),
+                    until: None,
+                },
+                s,
+            )?;
         }
         Ok(())
     })

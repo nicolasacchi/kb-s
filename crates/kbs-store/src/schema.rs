@@ -184,7 +184,7 @@ mod unit {
             .iter()
             .map(|m| m.version())
             .collect();
-        // Le versioni sono 1..7 in un ordine che **non** è quello: refinery le
+        // Le versioni sono 1..8 in un ordine che **non** è quello: refinery le
         // legge nell'ordine del filesystem e le applica così. Ogni versione
         // alza l'epoch con `MAX`, quindi l'ordine non conta — ma l'insieme delle
         // versioni sì, e questo è il numero che la guardia confronta.
@@ -196,7 +196,7 @@ mod unit {
         // test è rosso — che è il comportamento voluto.
         let mut ordinata = versions.clone();
         ordinata.sort_unstable();
-        assert_eq!(ordinata, vec![1, 2, 3, 4, 5, 6, 7]);
-        assert_eq!(binary_epoch(), 7);
+        assert_eq!(ordinata, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(binary_epoch(), 8);
     }
 }

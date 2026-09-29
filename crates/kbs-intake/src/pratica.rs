@@ -76,6 +76,11 @@
 //! arriva qui — ed è già un caso provato per nome
 //! (`chi_non_insegna_il_corso_non_registra_niente`).
 //!
+//! La relazione che quel predicato chiede si registra con `kbs insegna --person
+//! <chi> --course <corso> --docente <persona>`, che è l'unico scrittore di
+//! produzione di `relations` e che registra anche **chi** ha premuto il tasto
+//! (`relations.recorded_by`, la colonna di `V8`).
+//!
 //! La difesa che resta è di **integrità**, non di verità, ed è la stessa che il
 //! tipo dà: `n_hints` è un input di `derived_id()`, quindi due registrazioni
 //! della stessa istanza allo stesso istante con un conteggio diverso prendono id

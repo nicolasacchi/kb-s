@@ -44,13 +44,16 @@ fn la_bozza_e_visibile_a_chi_l_ha_scritta_e_al_docente() {
     // Un secondo docente dello stesso corso non l'ha scritta ma lo insegna:
     // `teaches` vede tutto il corso, bozze comprese.
     s.store
-        .add_relation(&crate::types::CourseRelation {
-            person: s.other_teacher.clone(),
-            course: s.course.clone(),
-            relation: Relation::Teaches,
-            since: Millis(0),
-            until: None,
-        })
+        .add_relation(
+            &crate::types::CourseRelation {
+                person: s.other_teacher.clone(),
+                course: s.course.clone(),
+                relation: Relation::Teaches,
+                since: Millis(0),
+                until: None,
+            },
+            &s.other_teacher,
+        )
         .expect("relazione");
     let by_teacher = s
         .store
@@ -286,14 +289,60 @@ fn una_relazione_di_corso_non_e_tutte_le_relazioni() {
     ] {
         let err = s
             .store
-            .add_relation(&crate::types::CourseRelation {
-                person: s.student.clone(),
-                course: s.course.clone(),
-                relation,
-                since: Millis(0),
-                until: None,
-            })
+            .add_relation(
+                &crate::types::CourseRelation {
+                    person: s.student.clone(),
+                    course: s.course.clone(),
+                    relation,
+                    since: Millis(0),
+                    until: None,
+                },
+                &s.student,
+            )
             .expect_err("relazione non di corso");
         assert_eq!(err.rule(), "validation");
     }
+}
+
+#[test]
+fn una_relazione_senza_provenienza_da_il_diritto_come_una_con_provenienza() {
+    let mut s = School::new();
+    let draft = s.draft(1);
+
+    // Una riga scritta **prima** di `V8`: `recorded_by` è NULL perché nessuno ha
+    // dichiarato chi l'ha registrata, e dichiararlo retroattivamente sarebbe una
+    // falsificazione firmata da una migrazione. Il predicato non legge quella
+    // colonna, e quindi la riga dà lo stesso diritto di una riga con la
+    // provenienza: il costo di `V8` è dichiarato e dichiarato è *NULL non
+    // disabilita*.
+    s.store
+        .conn()
+        .execute(
+            "INSERT INTO relations (person_id, course_id, relation, since, until, recorded_by) \
+             VALUES (?1, ?2, 'teaches', 0, NULL, NULL)",
+            rusqlite::params![s.other_teacher.0.as_str(), s.course.0.as_str()],
+        )
+        .expect("riga legacy");
+    let relazioni = s.store.relations_of(&s.other_teacher, &s.course).unwrap();
+    assert!(relazioni.contains(&Relation::Teaches));
+    s.store
+        .read_argument(&s.other_teacher, &draft.id)
+        .expect("una riga senza provenienza dà lo stesso diritto di una con");
+
+    // E il predicato continua a non chiedere niente a `recorded_by`: la colonna
+    // è **sul** fatto, non è una **condizione** del fatto. Una riga con
+    // provenienza non dà niente in più, e una riga che punta a una persona
+    // inesistente non può nemmeno esistere (il vincolo è dichiarato nella
+    // migrazione).
+    let mancante: String = s
+        .store
+        .conn()
+        .query_row(
+            "SELECT COALESCE(recorded_by, 'nessuno') FROM relations \
+             WHERE person_id = ?1 AND relation = 'teaches'",
+            [s.other_teacher.0.as_str()],
+            |r| r.get(0),
+        )
+        .expect("la riga c'è");
+    assert_eq!(mancante, "nessuno");
 }

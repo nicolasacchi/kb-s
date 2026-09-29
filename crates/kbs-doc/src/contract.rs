@@ -59,22 +59,37 @@ pub const SECTIONS: [SectionSpec; 8] = [
     SectionSpec { name: "SCALA", budget: 1536 },
     SectionSpec { name: "EQUIVOCI", budget: 1024 },
     SectionSpec { name: "ESEMPIO-LAVORATO", budget: 1536 },
-    SectionSpec { name: "VERIFICA", budget: 512 },
-    SectionSpec { name: "LIMITE", budget: 256 },
+    // Stessa regola di LIMITE: e' l'unica sezione il cui compito e' dire come lo
+    // studente viene verificato, e farlo con i dati dell'esercizio costa piu' di
+    // quello che sta in 512 byte. Un budget che obbliga a troncare la descrizione
+    // della verifica lascia il docente con un esercizio e nessuna regola.
+    SectionSpec { name: "VERIFICA", budget: 768 },
+    // LIMITE ha un budget maggiore delle altre sezioni perche' e' l'unica il cui
+    // compito e' **dire che cosa l'argomento non sa**, e farlo onestamente costa
+    // piu' di quello che si puo' dichiarare in 256 byte. Un budget che obbliga
+    // a troncare la propria lista di limiti produce esattamente il difetto che
+    // la sezione esiste per evitare: un argomento che dichiara di non sapere
+    // meno di quanto sa. I 256 erano un numero senza una misura dietro; questo
+    // e' il piu' lungo LIMITE onesto che il corpus reale contiene (550 byte)
+    // con un margino che non e' ZERO per caso.
+    SectionSpec { name: "LIMITE", budget: 768 },
 ];
 
-/// Somma dei budget: 6272 byte.
-pub const BUDGET_SUM: usize = 6272;
+/// Somma dei budget: 7040 byte.
+pub const BUDGET_SUM: usize = 7040;
 
 /// Tetto duro sul contratto intero.
 pub const HARD_CAP: usize = 8192;
 
-/// Margine fra la somma dei budget e il tetto: 1920 byte.
+/// Margine fra la somma dei budget e il tetto: 1152 byte.
 ///
 /// È il margine che una sezione può rubare alle altre. Per questo un corpo di
 /// sezione sopra budget è un **avviso** e non un errore: il margine esiste
 /// proprio per accogliere l'eccezione. Quello che non è un'eccezione è il tetto.
-pub const MARGIN: usize = 1920;
+// Derivato, non dichiarato: due copie di questo numero possono divergere, e quando
+// divergono il margine che il validatore concede e il margine che il banco
+// concede sono due, senza che nessuno se ne accorga.
+pub const MARGIN: usize = HARD_CAP - BUDGET_SUM;
 
 /// Il nome della sezione in posizione `index`, se la posizione è valida.
 pub fn section_name(index: usize) -> Option<&'static str> {
@@ -405,10 +420,16 @@ mod tests {
     fn i_budget_dichiarati_sono_il_contratto() {
         let somma: usize = SECTIONS.iter().map(|s| s.budget).sum();
         assert_eq!(somma, BUDGET_SUM);
-        assert_eq!(BUDGET_SUM, 6272);
+        // I due numeri che seguono sono l'invariante, non una descrizione: se
+        // cambiano, cambiano **per decisione**, e la decisione è nel commento
+        // accanto a LIMITE e VERIFICA. Le due sezioni hanno un budget maggiore
+        // delle altre perché sono le uniche il cui compito è dire qualcosa di
+        // specifico — che cosa l'argomento non sa, e come lo studente viene
+        // verificato — e farlo onestamente costa piu' di 256 e 512 byte.
+        assert_eq!(BUDGET_SUM, 7040);
         assert_eq!(HARD_CAP, 8192);
         assert_eq!(HARD_CAP - BUDGET_SUM, MARGIN);
-        assert_eq!(MARGIN, 1920);
+        assert_eq!(MARGIN, 1152);
     }
 
     #[test]

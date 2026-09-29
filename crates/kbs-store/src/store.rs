@@ -160,13 +160,38 @@ impl Store {
         Ok(())
     }
 
-    /// Aggiunge un'iscrizione o un incarico di insegnamento.
+    /// Aggiunge un'iscrizione o un incarico di insegnamento, e **chi lo ha
+    /// registrato**.
     ///
     /// Solo `enrolled_in` e `teaches` si possono scrivere: `author_of`,
     /// `ratified` e `speculative_for` sono fatti su un oggetto, non sul corso, e
     /// il predicato li deriva dagli argomenti. Rifiutarli qui è più onesto che
     /// accettarli e non farne nulla.
-    pub fn add_relation(&mut self, r: &CourseRelation) -> Result<()> {
+    ///
+    /// # Perché `registrato_da` è un parametro e non un campo di
+    /// [`CourseRelation`]
+    ///
+    /// `CourseRelation` è **il fatto**: «questa persona insegna questo corso da
+    /// qui a là». Chi lo ha premuto è **la dichiarazione del fatto**, e stare
+    /// dentro il fatto significherebbe che due persone che dichiarano lo stesso
+    /// fatto hanno descritto due fatti diversi. Quindi la relazione non cambia
+    /// quando la si registra e la provenienza non è confrontabile con essa.
+    ///
+    /// Il parametro è `&PersonId` e non `Option`: dopo `V8` il percorso che
+    /// scrive relazioni sa chi scrive, e la firma lo rende dichiarabile a chi
+    /// la tocca per prima. Il `NULL` che la colonna accetta è raggiungibile solo
+    /// dalle righe scritte prima di `V8` e da SQL scritto a mano — ed è la
+    /// semantica che `V6` dà a `unaided IS NULL`: **non registrato**, non
+    /// *nessuno*.
+    ///
+    /// # Perché la colonna non è nella chiave
+    ///
+    /// La PK è `(person_id, course_id, relation, since)` e resta quella. Se
+    /// `registrato_da` fosse in chiave, due righe che differiscono solo per chi le
+    /// ha registrate sarebbero lo stesso fatto scritto due volte; sono invece lo
+    /// stesso fatto **dichiarato due volte da due persone**, e la seconda
+    /// dichiarazione è informazione, non duplicazione.
+    pub fn add_relation(&mut self, r: &CourseRelation, registrato_da: &PersonId) -> Result<()> {
         if !matches!(r.relation, Relation::EnrolledIn | Relation::Teaches) {
             return Err(Error::InvalidField {
                 field: "relation",
@@ -177,14 +202,15 @@ impl Store {
             });
         }
         self.conn.execute(
-            "INSERT INTO relations (person_id, course_id, relation, since, until) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO relations (person_id, course_id, relation, since, until, recorded_by) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![
                 r.person.0,
                 r.course.0,
                 relation_to_db(r.relation),
                 r.since.0,
                 r.until.map(|t| t.0),
+                registrato_da.0,
             ],
         )?;
         Ok(())

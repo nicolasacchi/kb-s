@@ -131,13 +131,16 @@ fn compagni(s: &mut School, n: usize, offset: u32) -> Vec<PersonId> {
                 })
                 .expect("persona");
             s.store
-                .add_relation(&CourseRelation {
-                    person: persona.clone(),
-                    course: s.course.clone(),
-                    relation: Relation::EnrolledIn,
-                    since: Millis(T0),
-                    until: None,
-                })
+                .add_relation(
+                    &CourseRelation {
+                        person: persona.clone(),
+                        course: s.course.clone(),
+                        relation: Relation::EnrolledIn,
+                        since: Millis(T0),
+                        until: None,
+                    },
+                    &persona,
+                )
                 .expect("iscrizione");
             persona
         })
@@ -1030,13 +1033,16 @@ fn un_giudice_non_ha_diritto_sulla_somma() {
     // non potrebbe nemmeno leggere l'argomento, e il diritto che qui si prova non
     // sarebbe quello del giudice ma quello di chi vede il materiale.
     s.store
-        .add_relation(&CourseRelation {
-            person: s.outsider.clone(),
-            course: s.course.clone(),
-            relation: Relation::EnrolledIn,
-            since: Millis(T0),
-            until: None,
-        })
+        .add_relation(
+            &CourseRelation {
+                person: s.outsider.clone(),
+                course: s.course.clone(),
+                relation: Relation::EnrolledIn,
+                since: Millis(T0),
+                until: None,
+            },
+            &s.outsider,
+        )
         .expect("iscrizione del pari");
     let sessione = s.session(Register::Gradings);
     s.store

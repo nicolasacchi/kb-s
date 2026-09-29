@@ -172,13 +172,16 @@ pub fn store_con_corso() -> Store {
         corpus_hash: None,
     })
     .unwrap();
-    s.add_relation(&CourseRelation {
-        person: docente(),
-        course: corso(),
-        relation: Relation::Teaches,
-        since: Millis(0),
-        until: None,
-    })
+    s.add_relation(
+        &CourseRelation {
+            person: docente(),
+            course: corso(),
+            relation: Relation::Teaches,
+            since: Millis(0),
+            until: None,
+        },
+        &docente(),
+    )
     .unwrap();
     s
 }

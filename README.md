@@ -150,6 +150,29 @@ espone nulla a chi non insegna. Diventa materiale del corso con
 persona (D4): un banco che indicizza non promote niente, e questo è il punto.
 `--person` dichiara chi agisce, e chi non dichiara niente non vede niente.
 
+`verify` però **non crea relazioni**: indicizza e basta, e chi lo esegue senza
+`--person` è `person_0000`, che diventa l'`origin_by` di tutto quello che ha
+indicizzato. L'operatore che ha scritto un argomento lo rivede — il predicato
+apre a `is_author` prima di guardare le relazioni — ma **un docente che
+insegnasse lo stesso corso non vede niente**, e senza `teaches` restano chiusi
+l'esercizio, lo scrutinio e l'export. La relazione si registra con un verbo, e
+il verbo è dichiarato qui per nome:
+
+```sh
+./target/debug/kbs insegna --db /tmp/kb-s.sqlite3 \
+    --person person_0001 --course matematica-seconda --docente person_0001
+```
+
+`--docente` è la persona che **insegna** e `--person` è **chi ha registrato la
+riga**: sono due domande diverse e `relations` le tiene separate, perché la
+seconda è la provenienza di un atto (`relations.recorded_by`). Il verbo scrive
+`teaches` e nient'altro, ed è **solo** della CLI locale: sull'HTTP e sull'MCP
+l'identità è dichiarata (`x-kbs-person`), e un metodo che concedesse diritti su
+quel trasporto sarebbe la definizione letterale di `teaches` in
+`kbs_core::may_read`. Non chiude relazioni — `Store::end_relation` esiste e questa
+CLI non lo espone — e non crea persone: il registro delle persone è della
+scuola.
+
 `Ctrl-C` chiude: le richieste già ricevute finiscono, il listener chiude subito,
 e il processo esce con `0`.
 

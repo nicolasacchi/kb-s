@@ -19,18 +19,50 @@ use crate::corpus::{self, Corpus};
 use crate::families;
 use crate::spec::{self, ClaimStatusKind, RatificaSpec, Spec};
 use kbs_core::{PublicationState, Relation};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// L'esito di un controllo.
+///
+/// Un controllo ha quattro esiti e non tre, e il quarto è nato dalla
+/// domanda che si pone a un banco che gira su un corpus di file veri.
+///
+/// Finché il banco girava sulla propria tabella, la domanda non si poneva:
+/// ogni corpus era quello che la tabella descriveva, e un controllo senza
+/// soggetto era un bug. Ma un corpus di file veri non è quello: non porta
+/// una famiglia di media, non porta un difetto dichiarato, non porta una
+/// ratifica. Un check che su quel corpus «non trova niente da controllare» e
+/// si segna **rosso** addestra il banco sul primo file del mondo reale, e un
+/// banco che addestra su tutto non distingue più niente.
+///
+/// Il quarto esito dice la verità: **non valutabile, e perché**. Non è
+/// `Superato` — un controllo che non ha guardato niente non ha dimostrato
+/// niente. Non è `Fallito` — il difetto, se c'è, è del banco e non del
+/// corpus. Non è `Saltato` — un saltato è un atto che la pipeline non ha
+/// potuto compiere, e qui la pipeline non c'entra: qui manca proprio la
+/// **premessa** del controllo.
+///
+/// Il precedente è nel codice stesso, a `checks.rs` (vedi il commento sopra
+/// `c_three`): un controllo che non poteva mai passare non era una verifica,
+/// era un controllo impossibile, e il codice lo dichiara invece di lasciarlo
+/// rosso in silenzio.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Esito {
     /// La proprietà è stata verificata ed è vera.
     Superato,
     /// La proprietà è stata verificata ed è falsa. Le righe dicono perché.
     Fallito(Vec<String>),
-    /// La proprietà non è stata verificata, e il motivo è qui.
+    /// La proprietà non è stata verificata, e il motivo è qui: un atto che
+    /// non è stato possibile compiere.
     Saltato(String),
+    /// La proprietà **non è valutabile** su questo corpus, e il motivo è qui:
+    /// il corpus non dichiara la premessa che il controllo deve valutare.
+    ///
+    /// Non è una scusa: è la dichiarazione che il controllo esiste, che su
+    /// questo corpus non ha niente su cui lavorare, e che nessuno lo prenda per
+    /// superato. Un check che tace e un check che non esiste sono la stessa
+    /// cosa per chi legge il referto.
+    NonValutabile(String),
 }
 
 impl Esito {
@@ -51,7 +83,18 @@ impl Esito {
             Esito::Superato => "superato",
             Esito::Fallito(_) => "fallito",
             Esito::Saltato(_) => "saltato",
+            Esito::NonValutabile(_) => "non-valutabile",
         }
+    }
+
+    /// `true` se l'esito non è un rosso. Serve alla regola di CI, che è
+    /// dichiarata in un solo posto: `--require-pipeline` rende un saltato un
+    /// fallimento, e **non** rende un non-valutabile un fallimento, perché un
+    /// non-valutabile non è un atto mancante: è una premessa che il corpus non
+    /// dichiara, e chiedere a una cartella di file di produrre una famiglia di
+    /// media sarebbe chiedere al banco di essere rosso su un corpus perfetto.
+    pub fn e_verde(&self) -> bool {
+        !matches!(self, Esito::Fallito(_))
     }
 }
 
@@ -71,7 +114,11 @@ pub struct Referto {
     pub controlli: Vec<Controllo>,
     /// Il numero di item del banco.
     pub item: usize,
-    /// Il numero di famiglie di media coperte.
+    /// Il numero di famiglie coperte: le famiglie di media del catalogo, o le
+    /// famiglie **dichiarate** dai file quando il banco guarda file reali. Il
+    /// campo [`Referto::fonte`] dice quale delle due, perché «5 famiglie» su un
+    /// corpus reale e «5 famiglie» sulla tabella sono due fatti diversi, e un
+    /// referto che li scrive uguali mente per la metà delle sue righe.
     pub famiglie: usize,
     /// L'hash del corpus: il numero che rende due esecuzioni confrontabili.
     pub hash_corpus: String,
@@ -79,6 +126,11 @@ pub struct Referto {
     pub pipeline: String,
     /// La radice del corpus, in percorso relativo.
     pub radice: String,
+    /// `Some("file-reali")` se il banco ha letto una cartella di file, `None`
+    /// se ha letto la propria tabella. È dichiarato perché un referto senza
+    /// questa informazione non si può confrontare con un altro: i due rami
+    /// hanno ontologie diverse e producono numeri diversi.
+    pub fonte: Option<&'static str>,
     /// Il numero di file che la radice contiene e che il banco non si aspetta.
     pub file_ignoti: Vec<String>,
 }
@@ -102,6 +154,18 @@ impl Referto {
             .count()
     }
 
+    /// I controlli che non sono valutabili su questo corpus. Non sono un
+    /// errore e non sono un atto mancante, ma sono la cosa che il referto
+    /// **non** può tacere: senza questo numero, un referto su ventuno file
+    /// reali con due soli controlli superati e ventitré non valutabili è
+    /// indistinguibile da un referto verde, e chi lo legge smette di fidarsi.
+    pub fn non_valutabili(&self) -> usize {
+        self.controlli
+            .iter()
+            .filter(|c| matches!(c.esito, Esito::NonValutabile(_)))
+            .count()
+    }
+
     /// `true` se il banco è verde. Un banco che ha saltato qualcosa è verde
     /// **solo** se il chiamante ha accettato i salti: `esito_con_rigidezza`
     /// risponde a questa domanda includendo la regola di CI.
@@ -110,6 +174,14 @@ impl Referto {
     }
 
     /// L'esito con la regola che vale in CI: un saltato è un fallimento.
+    ///
+    /// Un **non valutabile** non lo è, ed è una scelta, non una dimenticanza.
+    /// La regola di CI dice «in CI non si accetta che un banco abbia deciso
+    /// di non verificare qualcosa»: il banco decide di non verificare quando
+    /// **non può**, e su un corpus di file veri non può, perché il file non
+    /// dichiara la premessa. Renderlo un fallimento significherebbe che
+    /// l'unico modo per essere verdi è non avere un corpus reale — cioè che il
+    /// banco vieta il mondo per restare verde.
     pub fn esito_con_rigidezza(&self, require_pipeline: bool) -> bool {
         self.falliti() == 0 && (!require_pipeline || self.saltati() == 0)
     }
@@ -126,6 +198,16 @@ pub struct Config {
     pub radice: PathBuf,
     /// Se `true`, un saltato è un fallimento. È la regola della CI.
     pub require_pipeline: bool,
+    /// Se `true`, il banco legge la radice come **corpus di file veri** e non
+    /// come la resa della propria tabella.
+    ///
+    /// È un campo e non un'altra radice perché i due corpi non sono due
+    /// versioni dello stesso banco: sono due ontologie. La tabella sa quale
+    /// famiglia di media è un item, quale difetto porta e chi l'ha ratificato;
+    /// un file su disco non lo sa e non lo dichiara. Senza questo campo il
+    /// banco girerebbe sulla tabella e chiamerebbe «ventuno file non
+    /// descritti» un corpus che invece è un altro corpus.
+    pub file_reali: bool,
 }
 
 impl Config {
@@ -133,6 +215,7 @@ impl Config {
         Config {
             radice: radice.into(),
             require_pipeline: false,
+            file_reali: false,
         }
     }
 
@@ -142,12 +225,24 @@ impl Config {
         Config::con_radice(Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus"))
     }
 
+    /// Il banco su un corpus di **file veri**: legge la radice, non la
+    /// tabella. È il modo in cui il banco guarda `corpus-ite/`.
+    pub fn su_file_reali(radice: impl Into<PathBuf>) -> Self {
+        Config::con_radice(radice).su_file_veri(true)
+    }
+
     /// La regola che vale in CI: un controllo saltato è un fallimento. È un
-    /// metodo e non un campo pubblico perché «la radice» e «la rigidezza» sono
-    /// una configurazione sola, e due variabili indipendenti si possono
-    /// dimenticare a metà.
+    /// metodo e non un campo pubblico perché «la radice», «la rigidezza» e
+    /// «la fonte del corpus» sono una configurazione sola, e due variabili
+    /// indipendenti si possono dimenticare a metà.
     pub fn con_rigidezza(mut self, require: bool) -> Self {
         self.require_pipeline = require;
+        self
+    }
+
+    /// Vedi il campo `file_reali`.
+    pub fn su_file_veri(mut self, si: bool) -> Self {
+        self.file_reali = si;
         self
     }
 }
@@ -368,14 +463,38 @@ impl<'a> Banco<'a> {
 /// Esegue il banco.
 pub struct Banco<'a> {
     corpus: Corpus,
+    /// Perché la radice non ha prodotto file, quando è successo. `None`
+    /// quando non doveva: è il caso normale.
+    errore_radice: Option<String>,
     cfg: Config,
     pipeline: &'a dyn Pipeline,
 }
 
 impl<'a> Banco<'a> {
+    /// Costruisce il banco. Il corpus è la resa della tabella, oppure — se
+    /// `cfg.file_reali` — i file che stanno sotto `cfg.radice`.
+    ///
+    /// Una radice che non si lascia leggere non è un errore di costruzione:
+    /// il banco parte lo stesso, con un corpus vuoto e la ragione in
+    /// [`Banco::errore_radice`], e i controlli che avrebbero guardato quei
+    /// file diventano non valutabili **nomelandoli**. Un banco che non parte
+    /// quando non può girare non dice niente, e chi lo aspetta per sapere se
+    /// il corpus è a posto aspetta per sempre.
     pub fn new(cfg: Config, pipeline: &'a dyn Pipeline) -> Self {
+        let (corpus, errore_radice) = if cfg.file_reali {
+            match Corpus::da_cartella(&cfg.radice) {
+                Ok(c) => (c, None),
+                Err(e) => (
+                    Corpus::da_voci(Vec::new()),
+                    Some(format!("{}: {e}", cfg.radice.display())),
+                ),
+            }
+        } else {
+            (Corpus::dalla_tabella(), None)
+        };
         Banco {
-            corpus: Corpus::dalla_tabella(),
+            corpus,
+            errore_radice,
             cfg,
             pipeline,
         }
@@ -386,6 +505,55 @@ impl<'a> Banco<'a> {
         &self.corpus
     }
 
+    /// `true` se il banco sta guardando file veri e non la propria tabella.
+    pub fn su_file_reali(&self) -> bool {
+        self.cfg.file_reali
+    }
+
+    /// Perché la radice non ha prodotto file, se non l'ha prodotta.
+    pub fn errore_radice(&self) -> Option<&str> {
+        self.errore_radice.as_deref()
+    }
+
+    /// Il verdetto di un controllo la cui **premissa** questo corpus non
+    /// dichiara, e la ragione con cui lo dichiara.
+    ///
+    /// È la funzione che tiene insieme tutti i «non valutabile»: senza di
+    /// essa ogni controllo dovrebbe ricordarsi da solo la regola, e il primo
+    /// che la dimentica diventa un rosso su un corpus che non lo meritava. Il
+    /// nome del controllo resta nel referto: un check che tace e un check che
+    /// non esiste sono la stessa cosa per chi legge.
+    fn non_valutabile(&self, perche: &str) -> Esito {
+        Esito::NonValutabile(perche.to_string())
+    }
+
+    /// Il verdetto di un controllo che guarda la **tabella**, quando il banco
+    /// sta guardando file veri. Il testo è il perché, ed è uno per controllo:
+    /// due controlli con la stessa ragione sono due controlli che non sanno
+    /// che cosa manca.
+    fn senza_tabella(&self, che_cosa: &str) -> Option<Esito> {
+        if !self.cfg.file_reali {
+            return None;
+        }
+        Some(self.non_valutabile(&format!(
+            "{che_cosa} è una proprietà della tabella dei fixture, e un file su disco non la dichiara: il corpus reale porta il testo, non la dichiarazione. Verificare qui significherebbe inventare la premessa e poi giudicare l'invenzione."
+        )))
+    }
+
+    /// Il verdetto di un controllo che guarda i **file**, quando la radice non
+    /// ha prodotto file. È il caso diverso da [`Banco::senza_tabella`]: qui la
+    /// premessa del controllo esiste, ma i file da guardare non sono arrivati,
+    /// e la ragione deve dire che è stato il banco a non trovarli.
+    fn senza_file(&self) -> Option<Esito> {
+        if !self.cfg.file_reali || !self.corpus.file().is_empty() {
+            return None;
+        }
+        Some(self.non_valutabile(&match &self.errore_radice {
+            Some(e) => format!("la radice del corpus non ha prodotto file: {e}"),
+            None => "la radice del corpus non contiene nessun file .html: il banco non ha niente da guardare e non può dichiarare che sia a posto".to_string(),
+        }))
+    }
+
     /// Esegue tutti i controlli e restituisce il referto.
     pub fn esegui(&self) -> Referto {
         let prima = self.pipeline.esegui(&self.corpus, &self.cfg.radice);
@@ -394,19 +562,73 @@ impl<'a> Banco<'a> {
         // ragione, e non si accodano a quelli che la prima strada ha già
         // prodotto. Un controllo che eredita l'esito di un altro è un
         // controllo che non ha verificato niente.
-        let d4 = self.seconda_strada();
+        // La seconda strada ha una premessa che su file reali non c'è: promuove
+        // ciò che la tabella dichiara ratificato di fresco. Su quei file non
+        // viene neppure **chiamata**, e non per ottimizzazione: un atto che
+        // promuove è un atto che scrive, e scrivere su un corpus che nessuno
+        // ha dichiarato ratificato è una cosa che il banco non fa anche se
+        // nessuno glielo impedisce.
+        let d4 = if self.cfg.file_reali {
+            Err(PipelineError::Altro(
+                "su un corpus di file reali non c'è nessuna ratifica dichiarata da applicare".into(),
+            ))
+        } else {
+            self.seconda_strada()
+        };
         let mut controlli = self.controlli_su_corpus();
         controlli.extend(self.controlli_su_pipeline(&prima, &d4));
         let (descrizione, ignoti) = self.dati_di_contesto();
         Referto {
             controlli,
-            item: self.corpus.len(),
-            famiglie: famiglie_coperte(&self.corpus).len(),
+            item: self.n_item(),
+            famiglie: self.n_famiglie(),
             hash_corpus: self.corpus.hash(),
             pipeline: descrizione,
-            radice: "corpus".to_string(),
+            radice: self.nome_radice(),
+            fonte: self.cfg.file_reali.then_some("file-reali"),
             file_ignoti: ignoti,
         }
+    }
+
+    /// Gli item del banco: gli artefatti HTML, e non le voci, quando il banco
+    /// guarda file veri. Su un corpus reale `voci` è vuota per costruzione, e
+    /// un referto che dicesse «0 item» su ventuno file sarebbe bugiardo.
+    fn n_item(&self) -> usize {
+        if self.cfg.file_reali {
+            self.corpus.artefatti().count()
+        } else {
+            self.corpus.len()
+        }
+    }
+
+    /// Le famiglie di media coperte. Su un corpus reale sono le **famiglie
+    /// dichiarate dai file** (`kb-family`), non le dodici del catalogo: sono
+    /// due cose diverse e confonderle renderebbe il referto verde per il
+    /// motivo sbagliato.
+    fn n_famiglie(&self) -> usize {
+        if self.cfg.file_reali {
+            let mut famiglie: BTreeSet<String> = BTreeSet::new();
+            for f in self.corpus.artefatti() {
+                if let Some(v) = meta_di(&f.contenuto, "kb-family") {
+                    famiglie.insert(v);
+                }
+            }
+            famiglie.len()
+        } else {
+            famiglie_coperte(&self.corpus).len()
+        }
+    }
+
+    /// Il nome della radice, in percorso relativo. Un percorso assoluto
+    /// renderebbe il referto diverso su ogni macchina, e un referto che
+    /// cambia non si può confrontare: qui il nome è l'ultimo segmento, che è
+    /// ciò che distingue `corpus` da `corpus-ite` agli occhi di chi legge.
+    fn nome_radice(&self) -> String {
+        self.cfg
+            .radice
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| ".".to_string())
     }
 
     fn dati_di_controllo(&self) -> (usize, Vec<String>) {
@@ -497,7 +719,14 @@ impl<'a> Banco<'a> {
         ]
     }
 
+    /// Quaranta voci è la dimensione **dichiarata dalla tabella**, non una
+    /// proprietà che si misura su un file. Su un corpus reale il numero di
+    /// file è un dato, e pretendere che siano quaranta significherebbe
+    /// giudicare il mondo con il metro del banco.
     fn c_quaranta(&self) -> Esito {
+        if let Some(e) = self.senza_tabella("la dimensione dichiarata del banco") {
+            return e;
+        }
         let n = self.corpus.len();
         if n == crate::items::DIMENSIONE {
             Esito::Superato
@@ -509,7 +738,28 @@ impl<'a> Banco<'a> {
         }
     }
 
+    /// Le dodici famiglie sono il **catalogo dei media** del banco, e la
+    /// copertura che il controllo chiede è una copertura *dichiarata*: ogni
+    /// voce della tabella porta la sua famiglia, e il banco verifica che le
+    /// dodici ci siano tutte.
+    ///
+    /// Su `corpus-ite/` i ventuno file dichiarano cinque famiglie —
+    /// `diritto-e-economia`, `economia-aziendale`, `geografia`, `mappe`,
+    /// `matematica` — e sono **discipline**, non famiglie di media. Nessuna
+    /// delle cinque è nel catalogo, e nessuna delle dodici è dichiarata. Un
+    /// controllo che le chiedesse sarebbe rosso per la ragione sbagliata: non
+    /// direbbe che i file sono sbagliati, direbbe che sono scolastici.
+    ///
+    /// Il punto è dichiarato anche per `kbs-exercise`: le famiglie che i
+    /// file dichiarano (`mappa-arco`, `costo-fisso-e-variabile`, …) non sono
+    /// le cinque di quel crate, e `Family::from_name` su quelle stringe
+    /// restituisce `None`. Il banco non deve pretendere che esistano: un
+    /// esercizio del corpus reale non è un esercizio che `kbs-exercise` sa
+    /// generare, e dirlo è più utile che segnare un rosso.
     fn c_famiglie(&self) -> Esito {
+        if let Some(e) = self.senza_tabella("la copertura delle dodici famiglie di media") {
+            return e;
+        }
         let coperte = famiglie_coperte(&self.corpus);
         let mancanti: Vec<String> = families::ALL
             .iter()
@@ -519,7 +769,23 @@ impl<'a> Banco<'a> {
         Esito::fallito_collect(mancanti)
     }
 
+    /// L'id segue il percorso, e i percorsi sono univoci. La proprietà si
+    /// misura sui **file** anche quando non c'è tabella, ed è forse il primo
+    /// controllo che un corpus reale può soddisfare davvero.
+    ///
+    /// Su un file reale l'id non si deduce da una voce: si legge. Ogni
+    /// artefatto dichiara la propria identità in `kb-argument`, e quel
+    /// percorso deve essere **il suo**: un file che si dichiara un altro
+    /// argomento entra nell'indice con un id che non è il suo posto, e
+    /// nessun controllo successivo lo nota, perché tutti gli altri guardano
+    /// l'id e non il file.
     fn c_id_univoci(&self) -> Esito {
+        if let Some(e) = self.senza_file() {
+            return e;
+        }
+        if self.su_file_reali() {
+            return self.c_id_dei_file_reali();
+        }
         let mut id: Vec<String> = Vec::new();
         let mut problemi = Vec::new();
         for s in self.corpus.voci() {
@@ -544,7 +810,46 @@ impl<'a> Banco<'a> {
         Esito::fallito_collect(problemi)
     }
 
+    /// Gli id dei file reali: derivati dal percorso, univoci, e coincidenti
+    /// con ciò che ogni file dichiara di essere.
+    fn c_id_dei_file_reali(&self) -> Esito {
+        let mut id: Vec<String> = Vec::new();
+        let mut problemi = Vec::new();
+        for f in self.corpus.artefatti() {
+            let derivato = kbs_core::ArgumentId::from_rel_path(&f.rel).0;
+            if id.contains(&derivato) {
+                problemi.push(format!(
+                    "{} e un altro file hanno l'id {derivato}",
+                    f.rel
+                ));
+            }
+            id.push(derivato.clone());
+            match meta_di(&f.contenuto, "kb-argument") {
+                None => problemi.push(format!(
+                    "{}: non dichiara «kb-argument», e un file che non dice quale argomento è non entra nell'indice con un id suo",
+                    f.rel
+                )),
+                Some(dichiarato) if dichiarato != f.rel => problemi.push(format!(
+                    "{}: dichiara l'argomento «{dichiarato}» e l'id che ne deriva è {derivato}, non quello del suo posto",
+                    f.rel
+                )),
+                Some(_) => {}
+            }
+        }
+        Esito::fallito_collect(problemi)
+    }
+
+    /// Coprire **tutti** gli stati di pubblicazione è una richiesta che il
+    /// banco fa a sé stesso: i quattro stati devono essere tutti esercitati
+    /// perché il sistema li sappia trattare. Un corpus reale che porta un solo
+    /// stato — `corpus-ite/` porta solo `in-corso` — non sta violando niente:
+    /// un corso che ha tutto in corso è un corso che ha tutto in corso. Se il
+    /// banco pretendesse qui i quattro stati, il primo file del mondo reale
+    /// avrebbe addestrato il banco a essere rosso.
     fn c_stati(&self) -> Esito {
+        if let Some(e) = self.senza_tabella("la copertura di tutti gli stati di pubblicazione") {
+            return e;
+        }
         let presenti: Vec<PublicationState> = self.corpus.voci().iter().map(|s| s.stato).collect();
         let mancanti: Vec<String> = corpus::STATI
             .iter()
@@ -557,7 +862,14 @@ impl<'a> Banco<'a> {
     /// La ratifica superata deve esistere **come riga**, non come commento:
     /// un `Invariant::StaleRatification` incontrato su dati veri è il motivo
     /// per cui la fiastra esiste.
+    ///
+    /// Su un corpus reale la ratifica non è un file: è un atto, e gli atti
+    /// stanno in un database. Qui il banco non ha un database e non deve
+    /// fingerne uno.
     fn c_ratifica_superata(&self) -> Esito {
+        if let Some(e) = self.senza_tabella("la ratifica superata") {
+            return e;
+        }
         let args = corpus::argomenti();
         let superate: Vec<&kbs_core::Argument> = args
             .iter()
@@ -592,7 +904,21 @@ impl<'a> Banco<'a> {
 
     /// I contratti: gli otto sezioni dei validi stanno nei budget, e i tre
     /// difetti di contratto sono misurabili sui byte del testo reso.
+    ///
+    /// Su un corpus reale il contratto a otto sezioni è una lingua che i file
+    /// non parlano: le intestazioni le scrive `render`, e un docente scrive
+    /// `<h2 id="…">`. Il controllo quindi non si ritira — si **misura prima**:
+    /// conta quanti file dichiarano il contratto, e se nessuno lo dichiara
+    /// l'esito è non valutabile, con quel numero nella ragione. Se qualcuno lo
+    /// dichiara, il contratto di quel file si misura come sempre, perché da
+    /// quel momento il banco ha qualcosa da giudicare.
     fn c_contratti(&self) -> Esito {
+        if let Some(e) = self.senza_file() {
+            return e;
+        }
+        if self.su_file_reali() {
+            return self.c_contratti_sui_file_reali();
+        }
         let mut problemi = Vec::new();
         for s in self.corpus.voci() {
             let testo = s.contract().render();
@@ -636,10 +962,82 @@ impl<'a> Banco<'a> {
         Esito::fallito_collect(problemi)
     }
 
+    /// I contratti dichiarati nei file reali. Se nessun file parla la lingua
+    /// del contratto a otto sezioni, non c'è niente da misurare e il controllo
+    /// lo dichiara; se qualcuno la parla, si misura come sul banco.
+    ///
+    /// Si misura il **testo del template**, non il file: `kbs-doc` tronca il
+    /// contratto dove finisce il template, e misurare il file intero farebbe
+    /// finire `LIMITE` — che è l'ultima sezione per ordine — dentro
+    /// `</template></body></html>`. Un banco che misurasse quello
+    /// dichiarerebbe fuori budget tutti i `LIMITE` del mondo, e il difetto
+    /// sarebbe del banco.
+    fn c_contratti_sui_file_reali(&self) -> Esito {
+        let artefatti: Vec<&crate::corpus::File> = self.corpus.artefatti().collect();
+        let mut problemi = Vec::new();
+        let mut dichiaranti = 0usize;
+        for f in &artefatti {
+            let testo = match contract::dal_template(&f.contenuto, contract::TEMPLATE_ID) {
+                Some(t) => t,
+                None => continue,
+            };
+            if !contract::dichiara_il_contratto(&testo) {
+                continue;
+            }
+            dichiaranti += 1;
+            let m = contract::measure(&testo);
+            if m.len() != contract::SECTIONS.len() {
+                problemi.push(format!(
+                    "{}: dichiara il contratto ma ne porta {} sezioni, otto obbligatorie",
+                    f.rel,
+                    m.len()
+                ));
+                continue;
+            }
+            for (nome, meas) in &m {
+                let budget = contract::SECTIONS
+                    .iter()
+                    .find(|(n, _)| n == nome)
+                    .map(|(_, b)| *b)
+                    .unwrap_or(0);
+                if meas.size > budget {
+                    problemi.push(format!(
+                        "{}: sezione {nome} di {} byte, budget {budget}",
+                        f.rel, meas.size
+                    ));
+                }
+            }
+            if testo.len() > HARD_CAP {
+                problemi.push(format!(
+                    "{}: contratto di {} byte, hard cap {HARD_CAP}",
+                    f.rel,
+                    testo.len()
+                ));
+            }
+        }
+        if dichiaranti == 0 {
+            return self.non_valutabile(&format!(
+                "nessuno dei {} file porta un <template id=\"{}\"> con il contratto a otto sezioni: quei nomi sono la lingua che `render` scrive, e senza quel template non c'è che cosa misurare",
+                artefatti.len(),
+                contract::TEMPLATE_ID
+            ));
+        }
+        Esito::fallito_collect(problemi)
+    }
+
     /// Le cinque fiastre rotte devono essere **ancora rotte**, misurate sui
     /// byte. Se qualcuno le sistema, il banco diventa rosso: è il modo in cui
     /// un banco avvisa che una correzione ha cambiato il test.
+    ///
+    /// Su un corpus reale non esiste una «metà negativa»: nessun file porta un
+    /// difetto **dichiarato**, e questo non è un difetto del corpus, è la
+    /// definizione di un corpus di file veri. Un file rotto è un file che la
+    /// pipeline rifiuta, e di quello si occupano i controlli `pipeline.*` —
+    /// che su `corpus-ite/` hanno davvero ventuno file da giudicare.
     fn c_fiastre_rovate(&self) -> Esito {
+        if let Some(e) = self.senza_tabella("la metà negativa del banco") {
+            return e;
+        }
         let mut problemi = Vec::new();
         let rotte: Vec<&Spec> = self
             .corpus
@@ -719,7 +1117,20 @@ impl<'a> Banco<'a> {
     /// I file su disco devono essere **esattamente** ciò che la tabella
     /// descrive. È il controllo che rende rumorosa una riparazione: se
     /// qualcuno sistema una fiastra a mano, qui il banco lo dice e dice quale.
+    ///
+    /// Su un corpus reale la domanda è un'altra, ed è l'unica che ha senso:
+    /// non «i file sono quelli che la tabella dice» — non c'è tabella — ma
+    /// «il banco ha letto **tutti** i file che ci sono». Una lettura
+    /// incompleta è il difetto più insidioso che un banco possa avere,
+    /// perché un file che non ha letto non produce alcun errore: produce
+    /// assenza, e l'assenza in un referto si legge come «tutto a posto».
     fn c_file_uguali(&self) -> Esito {
+        if let Some(e) = self.senza_file() {
+            return e;
+        }
+        if self.su_file_reali() {
+            return self.c_lettura_completa();
+        }
         if !self.cfg.radice.is_dir() {
             return Esito::Saltato(format!(
                 "la radice del corpus non esiste su disco: nessun file da confrontare con la tabella"
@@ -744,6 +1155,31 @@ impl<'a> Banco<'a> {
         Esito::fallito_collect(problemi)
     }
 
+    /// Tutti i file della radice sono nel corpus che il banco sta guardando.
+    /// I file illeggibili sono i soli che possono mancare, e sono un difetto
+    /// del banco che li ha cercati male, non del corpus che li ha: il messaggio
+    /// lo dice, perché un file illeggibile che il lettore crede letto è peggio
+    /// di un file illeggibile che il banco si rifiuta di leggere.
+    fn c_lettura_completa(&self) -> Esito {
+        let letti: BTreeSet<&str> = self.corpus.file().iter().map(|f| f.rel.as_str()).collect();
+        let mut trovati = Vec::new();
+        walk_file(&self.cfg.radice, &mut |rel| {
+            if rel.ends_with(".html") {
+                trovati.push(rel.to_string());
+            }
+        });
+        let mancanti: Vec<String> = trovati
+            .iter()
+            .filter(|rel| !letti.contains(rel.as_str()))
+            .map(|rel| {
+                format!(
+                    "{rel}: presente nella radice e assente dal corpus, e la sola ragione possibile è che il banco non è riuscito a leggerlo"
+                )
+            })
+            .collect();
+        Esito::fallito_collect(mancanti)
+    }
+
     /// Ogni claim che dichiara uno span deve avere, nel file, l'ancora e il
     /// testo dello span — e deve dichiararli **nella convenzione che `kbs-doc`
     /// legge**: `data-claim` per il fatto, `data-claim-id` per l'identità,
@@ -761,7 +1197,22 @@ impl<'a> Banco<'a> {
     /// la resa dichiari ciò che la tabella dice, lì che `kbs-doc` ne ricavi
     /// proprio la claim. I due insiemi insieme sono la prova, e ciascuno da
     /// solono lascerebbe un buco.
+    ///
+    /// **Su un corpus reale** la stessa proprietà è letta sul file invece che
+    /// sulla tabella: non c'è una `ClaimSpec` da confrontare, ma c'è la
+    /// dichiarazione **nel file**, che è la stessa cosa vista dal lato da cui
+    /// la legge `kbs-doc`. Ogni `data-claim-span` deve avere l'`id`
+    /// corrispondente nel testo, e ogni `data-claim-id` deve stare sulla
+    /// dichiarazione che porta il fatto: un id senza `data-claim` è un
+    /// registro che conterrà una claim senza testo, e un'ancora senza id è
+    /// un indirizzo a cui nessuno può tornare.
     fn c_ancore(&self) -> Esito {
+        if let Some(e) = self.senza_file() {
+            return e;
+        }
+        if self.su_file_reali() {
+            return self.c_ancore_nei_file_reali();
+        }
         let mut problemi = Vec::new();
         for s in self.corpus.voci() {
             let artefatto = match self.corpus.file_di(s.rel) {
@@ -811,10 +1262,74 @@ impl<'a> Banco<'a> {
         Esito::fallito_collect(problemi)
     }
 
+    /// Le claim dichiarate nei file reali, con la stessa severità del banco.
+    ///
+    /// Il confronto è fatto **per elemento**, non per file: `data-claim-span` e
+    /// `data-claim-id` devono stare sulla stessa apertura, perché è la stessa
+    /// apertura che `kbs-doc` legge. Un controllo che cercasse i due attributi
+    /// separatamente nel testo passerebbe un file in cui ogni claim ha
+    /// l'ancora di un'altra, e un registro con claim scambiate è un registro
+    /// che mente in modo difficile da vedere.
+    ///
+    /// **Un elemento che porta `data-claim-id` senza dichiarare il fatto non è
+    /// una claim malformata: è un riferimento.** Le mappe di `corpus-ite/` lo
+    /// fanno esattamente così — `<p data-nodo="n-obj" data-claim-id="cl_44_1">`
+    /// è un nodo che *cita* una claim, e la claim è dichiarata altrove, sull'elemento
+    /// che porta `data-claim`. Confondere le due cose produceva un rosso per
+    /// ogni nodo e ogni arco del corpus, cioè ventisei righe che dicono tutte la
+    /// stessa cosa falsa: che il corpus non sa cosa sia una claim.
+    fn c_ancore_nei_file_reali(&self) -> Esito {
+        let mut problemi = Vec::new();
+        for f in self.corpus.artefatti() {
+            for tag in aperture(&f.contenuto) {
+                // Una claim è **dichiarata** dove porta il fatto. Solo lì gli
+                // si chiedono i tre attributi insieme.
+                let fatto = attributo(tag, "data-claim");
+                let (Some(_), id, span) = (fatto, attributo(tag, "data-claim-id"), attributo(tag, "data-claim-span")) else {
+                    continue;
+                };
+                let (Some(id), Some(span)) = (id, span) else {
+                    problemi.push(format!(
+                        "{}: un elemento dichiara il fatto in «data-claim» ma non dice quale claim sia o quale anchor apra, e una dichiarazione senza identità nel registro non è una claim",
+                        f.rel
+                    ));
+                    continue;
+                };
+                if !f.contenuto.contains(&format!("id=\"{span}\"")) {
+                    problemi.push(format!(
+                        "{}: la claim {id} dichiara lo span {span} e l'ancora non è nel testo",
+                        f.rel
+                    ));
+                }
+            }
+        }
+        Esito::fallito_collect(problemi)
+    }
+
     /// I due riferimenti al runtime: una CDN che deve fallire e un percorso
     /// locale che deve passare. Se il banco smette di distinguerli, la
     /// metà negativa di D15 non esiste.
+    ///
+    /// Su un corpus reale la coppia non esiste: nessun file di `corpus-ite/`
+    /// carica three.js, in locale né da CDN. Il controllo chiede che i due
+    /// riferimenti siano **diversi**, e «diversi da niente» non è una
+    /// proprietà. Qui la ragione porta il numero di file che dichiarano un
+    /// runtime, perché quel numero è un fatto che il lettore del referto
+    /// vuole e non un verdetto.
     fn c_runtime(&self) -> Esito {
+        if let Some(e) = self.su_file_reali().then(|| {
+            let dichiaranti = self
+                .corpus
+                .artefatti()
+                .filter(|f| f.contenuto.contains("three"))
+                .count();
+            self.non_valutabile(&format!(
+                "la coppia di riferimenti al runtime è una costruzione della tabella, e qui {dichiaranti} dei {} file dichiarano three.js: senza un riferimento esterno dichiarato e uno locale dichiarato non c'è che cosa distinguere",
+                self.corpus.artefatti().count()
+            ))
+        }) {
+            return e;
+        }
         let voci = self.corpus.voci();
         let cdn: Vec<&Spec> = voci
             .iter()
@@ -859,7 +1374,22 @@ impl<'a> Banco<'a> {
     /// D15.1: ogni nodo e ogni arco dichiarato corrisponde a una claim, e la
     /// claim esiste fra quelle dell'item. Un oggetto 3D senza claim non entra
     /// nell'indice condiviso.
+    ///
+    /// **Su un corpus reale la proprietà è la stessa e si legge sui file**: i
+    /// quattro file di `corpus-ite/mappe/` dichiarano 17 nodi e 20 archi con
+    /// `data-nodo` e `data-arco`, e ognuno porta la sua `data-claim-id`. Il
+    /// controllo verifica che quell'id sia fra le claim dichiarate **nello
+    /// stesso file**: un nodo che cita la claim di un altro file non è un nodo
+    /// senza claim, è un nodo che entra nell'indice con la claim sbagliata, e
+    /// un indice con una claim al posto di un'altra è peggio di un indice
+    /// vuoto perché sembza pieno.
     fn c_scena(&self) -> Esito {
+        if let Some(e) = self.senza_file() {
+            return e;
+        }
+        if self.su_file_reali() {
+            return self.c_scena_nei_file_reali();
+        }
         let voci = self.corpus.voci();
         let con_scena: Vec<&Spec> = voci.iter().filter(|s| s.scena.is_some()).collect();
         let mut problemi = Vec::new();
@@ -904,9 +1434,80 @@ impl<'a> Banco<'a> {
         Esito::fallito_collect(problemi)
     }
 
+    /// I nodi e gli archi dichiarati nei file reali.
+    fn c_scena_nei_file_reali(&self) -> Esito {
+        let mut problemi = Vec::new();
+        let mut con_scena = 0usize;
+        for f in self.corpus.artefatti() {
+            // Le claim che **questo file** dichiara: sono le uniche che gli
+            // appartengono, e il confronto è sul file perché un id è un
+            // puntatore locale, non un riferimento a un altro argomento.
+            let dichiarate: BTreeSet<String> = aperture(&f.contenuto)
+                .filter_map(|t| attributo(t, "data-claim-id"))
+                .collect();
+            let mut oggetti = 0usize;
+            for (attr, nome) in [("data-nodo", "nodo"), ("data-arco", "arco")] {
+                for tag in aperture(&f.contenuto).filter(|t| t.contains(attr)) {
+                    oggetti += 1;
+                    let etichetta = attributo(tag, attr).unwrap_or_default();
+                    match attributo(tag, "data-claim-id") {
+                        None => problemi.push(format!(
+                            "{}: {nome} {etichetta} senza «data-claim-id», e un oggetto senza claim non entra nell'indice condiviso",
+                            f.rel
+                        )),
+                        Some(c) if !dichiarate.contains(&c) => problemi.push(format!(
+                            "{}: {nome} {etichetta} cita la claim {c}, che questo file non dichiara",
+                            f.rel
+                        )),
+                        Some(_) => {}
+                    }
+                }
+            }
+            if oggetti > 0 {
+                con_scena += 1;
+            }
+        }
+        if con_scena == 0 {
+            return self.non_valutabile(
+                "nessun file dichiara nodi o archi con «data-nodo»/«data-arco»: la scena 3D è una costruzione del banco, e su un corpus senza scene non c'è che cosa giudicare",
+            );
+        }
+        Esito::fallito_collect(problemi)
+    }
+
     /// L'esercizio parametrizzato con due istanze, e le due istanze devono
     /// avere risposte diverse: è il motivo per cui copiare non funziona.
+    ///
+    /// Su un corpus reale i cinque file di `corpus-ite/esercizi/` dichiarano
+    /// esercizi con `data-esercizio`, `data-famiglia`, `data-checker` e tre
+    /// `data-seed`, e le famiglie che dichiarano (`costo-fisso-e-variabile`,
+    /// `mappa-arco`, `ottimizzazione-due-variabili`, …) **non sono le cinque di
+    /// `kbs-exercise`**: `Family::from_name` su quelle stringe restituisce
+    /// `None`. Il controllo non può replayarle — e non deve: pretendere che un
+    /// esercizio del corpus reale sia un esercizio che quel crate sa generare
+    /// significherebbe giudicare un generatore che non esiste. La ragione
+    /// nomina le famiglie trovate, perché «non valutabile» senza sapere che cosa
+    /// c'era è un silenzio travestito.
     fn c_istanze(&self) -> Esito {
+        if let Some(e) = self.su_file_reali().then(|| {
+            let mut famiglie: BTreeSet<String> = BTreeSet::new();
+            let mut esercizi = 0usize;
+            for f in self.corpus.artefatti() {
+                for tag in aperture(&f.contenuto).filter(|t| t.contains("data-esercizio=")) {
+                    esercizi += 1;
+                    if let Some(v) = attributo(tag, "data-famiglia") {
+                        famiglie.insert(v);
+                    }
+                }
+            }
+            self.non_valutabile(&format!(
+                "il replay delle istanze è la proprietà di `kbs-exercise`, e {esercizi} esercizi su {} file dichiarano {} famiglie che quel crate non conosce: nessuna di esse è risolvibile con `Family::from_name`, quindi qui non c'è un generatore da confrontare con la risposta dichiarata",
+                self.corpus.artefatti().count(),
+                famiglie.len()
+            ))
+        }) {
+            return e;
+        }
         let voci = self.corpus.voci();
         let parametrici: Vec<(&Spec, &crate::spec::ExerciseSpec)> = voci
             .iter()
@@ -944,7 +1545,41 @@ impl<'a> Banco<'a> {
         Esito::fallito_collect(problemi)
     }
 
+    /// Le claim contraddette e le non citabili devono **esistere** nel banco:
+    /// senza una traccia dell'errore e senza una soppressione in output non si
+    /// verifica che il registro le conserva e che l'output le toglie.
+    ///
+    /// Su `corpus-ite/` le ventinove claim dichiarate sono tutte `supported`,
+    /// e questo non è un difetto: è un corso in cui nessuno ha ancora
+    /// contestato niente. Il controllo chiede una **presenza** di claim con
+    /// errore, e su un corpus senza errori non può dare un verdetto: il numero
+    /// di claim che troverebbe è nella ragione, perché «non valutabile» senza
+    /// il conto è di nuovo un silenzio.
     fn c_claim_con_errore(&self) -> Esito {
+        if let Some(e) = self.su_file_reali().then(|| {
+            let mut stati: BTreeMap<String, usize> = BTreeMap::new();
+            for f in self.corpus.artefatti() {
+                for tag in aperture(&f.contenuto) {
+                    if let Some(s) = attributo(tag, "data-stato") {
+                        *stati.entry(s).or_default() += 1;
+                    }
+                }
+            }
+            let elenco = if stati.is_empty() {
+                "nessuna claim dichiara «data-stato»".to_string()
+            } else {
+                stati
+                    .iter()
+                    .map(|(s, n)| format!("{n} {s}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            self.non_valutabile(&format!(
+                "le claim con errore sono una costruzione del banco, e su questo corpus le claim dichiarano: {elenco}. Senza una claim contraddetta e una non citabile non c'è traccia dell'errore da verificare"
+            ))
+        }) {
+            return e;
+        }
         let voci = self.corpus.voci();
         let contraddette: Vec<&Spec> = voci
             .iter()
@@ -987,7 +1622,22 @@ impl<'a> Banco<'a> {
     /// La catena dei prerequisiti deve essere **vera**: ci deve essere un item
     /// valido che ne eredita altri, e il grafo degli item validi deve essere
     /// aciclico. Un banco senza catena non verifica niente del vincolo.
+    ///
+    /// **Su un corpus reale questa è la verifica più pesante che il banco
+    /// possa fare**, e la fa: `corpus-ite/` dichiara 45 archi in `data-prereq`
+    /// fra i suoi ventuno file, e quegli archi si possono leggere, contare e
+    /// controllare. Le tre cose che il banco chiede sono le stesse: gli archi
+    /// esistono, ogni capo punta a un file che c'è, e il grafo è aciclico. Un
+    /// prerequisito che punta a un file assente è un argomento che chiede
+    /// qualcosa che non potrà mai leggere, e su un corpus reale nessun altro
+    /// controllo lo nota.
     fn c_prerequisiti(&self) -> Esito {
+        if let Some(e) = self.senza_file() {
+            return e;
+        }
+        if self.su_file_reali() {
+            return self.c_prerequisiti_nei_file_reali();
+        }
         let voci = self.corpus.voci();
         let validi: std::collections::BTreeSet<&str> = voci
             .iter()
@@ -1028,6 +1678,39 @@ impl<'a> Banco<'a> {
         Esito::fallito_collect(problemi)
     }
 
+    /// Il grafo dei prerequisiti dichiarato nei file reali: gli archi
+    /// esistono, puntano a file che ci sono, e non formano un ciclo.
+    fn c_prerequisiti_nei_file_reali(&self) -> Esito {
+        let presenti: BTreeSet<&str> = self.corpus.artefatti().map(|f| f.rel.as_str()).collect();
+        let mut grafo: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        let mut problemi = Vec::new();
+        for f in self.corpus.artefatti() {
+            let archi: Vec<&str> = attributi(&f.contenuto, "data-prereq");
+            for a in &archi {
+                if !presenti.contains(a) {
+                    problemi.push(format!(
+                        "{}: il prerequisito {a} non è un file di questa radice, e un argomento che chiede qualcosa che non potrà leggere non è un argomento con un prerequisito",
+                        f.rel
+                    ));
+                }
+            }
+            grafo.insert(f.rel.as_str(), archi);
+        }
+        let n_archi: usize = grafo.values().map(Vec::len).sum();
+        if n_archi == 0 {
+            return self.non_valutabile(
+                "nessun file dichiara «data-prereq»: il grafo non esiste, e la proprietà che il controllo verifica è definita solo su un grafo",
+            );
+        }
+        // Il ciclo è l'unico errore che nessun controllo sui singoli archi
+        // vede: due archi sani che si puntano a vicenda sono un corso che
+        // non si può seguire da nessuna parte.
+        if let Some(ciclo) = cerca_ciclo_su_grafo(&grafo) {
+            problemi.push(format!("ciclo fra i prerequisiti: {}", ciclo.join(" → ")));
+        }
+        Esito::fallito_collect(problemi)
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Controlli sulla pipeline: senza di lei sono saltati, con la ragione.
     // ─────────────────────────────────────────────────────────────────────────
@@ -1037,6 +1720,9 @@ impl<'a> Banco<'a> {
         d4: &Result<D4<'_>, PipelineError>,
     ) -> Vec<Controllo> {
         let saltato = |e: &PipelineError| Esito::Saltato(e.to_string());
+        if self.su_file_reali() {
+            return self.controlli_pipeline_su_file_reali(esito);
+        }
         let uscita = match esito {
             Ok(u) => u,
             Err(e) => {
@@ -1123,6 +1809,118 @@ impl<'a> Banco<'a> {
             }
         }
         controlli
+    }
+
+    /// I controlli sulla pipeline quando il banco guarda **file veri**.
+    ///
+    /// Undici controlli su undici non sono valutabili, e ognuno lo dice per
+    /// conto suo: tutti confrontano l'uscita della pipeline con ciò che la
+    /// **tabella** dichiara — quale item deve essere rifiutato, quale claim deve
+    /// avere un errore, chi è ratificato di fresco — e un corpus di file veri non
+    /// ha nessuna di queste dichiarazioni. Un banco che le desse per superate
+    /// starebbe dicendo «ho verificato che ventuno file sono validi» quando ha
+    /// solo contato che ventuno file esistono.
+    ///
+    /// Ma su un corpus reale la pipeline ha una cosa da fare che è vera e che
+    /// nessuno degli undici guarda, ed è questa: **ha indicizzato tutti i file
+    /// che ci sono**. Un file che la pipeline non riporta è un file che non
+    /// entra nell'indice, e un file che non entra nell'indice non produce
+    /// nessun errore — scompare. Quello è il controllo che il banco può fare
+    /// qui, e lo fa.
+    fn controlli_pipeline_su_file_reali(&self, esito: &Result<Uscita, PipelineError>) -> Vec<Controllo> {
+        let ragione_provata = |che_cosa: &str| {
+            self.non_valutabile(&format!(
+                "l'attesa di questo controllo è scritta nella tabella dei fixture, e un corpus di file veri non la dichiara: {che_cosa}. Su questi file non c'è che cosa confrontare, e dichiararlo superato sarebbe dire «ho verificato» quando il banco ha solo contato"
+            ))
+        };
+        let mut controlli = vec![
+            pc(
+                "pipeline.validazione.corrisponde_all_attesa",
+                ragione_provata("l'attesa è «questo item è valido» o «questo item porta un difetto», riga per riga"),
+            ),
+            pc(
+                "pipeline.validazione.i_codici_di_rifiuto",
+                ragione_provata("gli attesi sono i cinque codici che i difetti di tabella devono produrre"),
+            ),
+            pc(
+                "pipeline.registro.gli_errori_restano_e_non_si_cancellano",
+                ragione_provata("serve una claim che la tabella dichiara con un errore, per vedere se l'errore resta"),
+            ),
+            pc(
+                "pipeline.registro.le_claim_non_citabili_sono_soppresse_in_output",
+                ragione_provata("serve una claim dichiarata non citabile, per vedere se l'output la toglie"),
+            ),
+            pc(
+                "pipeline.prerequisiti.il_ciclo_e_rifiutato",
+                ragione_provata("serve una fiastra con un ciclo dichiarato in tabella, e qui un ciclo sarebbe un difetto del corpus, non del banco"),
+            ),
+            pc(
+                "pipeline.documenti.solo_la_versione_locale_di_three_e_pubblicabile",
+                ragione_provata("l'accoppiata è un artefatto con CDN e uno senza, entrambi scelti dalla tabella"),
+            ),
+            pc(
+                "pipeline.documenti.la_scena_3d_e_manipolabile_e_i_suoi_dati_sono_il_contenuto",
+                ragione_provata("la scena del banco è un manifest JSON che la tabella produce"),
+            ),
+        ];
+        // I quattro atti di D4 hanno una premessa che qui non esiste: la
+        // seconda strada promuove ciò che la tabella dichiara ratificato di
+        // fresco, e su file reali non c'è nessuna ratifica dichiarata da
+        // promuovere. Non è un atto saltato — l'atto potrebbe partire — è un
+        // atto che non ha soggetto, e la differenza è dichiarata.
+        //
+        // Qui `d4` non si consulta nemmeno: la sua ragione sarebbe quella
+        // della tabella, cioè la stessa informazione di questa, detta una
+        // volta sola e in forma peggiore.
+        for nome in NOMI_D4 {
+            controlli.push(pc(
+                nome,
+                self.non_valutabile(
+                    "la ratifica è un atto di una persona e sta in un database, non in un file: qui non c'è nessuna ratifica da applicare e nessun contratto da riscrivere sotto una firma",
+                ),
+            ));
+        }
+        // E il controllo che qui è possibile, che nessuno degli undici fa.
+        controlli.push(pc(
+            "pipeline.ogni_file_della_radice_e_indicizzato",
+            self.c_indice_completo(esito),
+        ));
+        controlli
+    }
+
+    /// Ogni file della radice ha una riga nel referto della pipeline, e ogni
+    /// riga del referto è un file della radice.
+    ///
+    /// È la coppia dei due buchi che un indicizzatore può avere, e sono
+    /// opposti: un file che manca dal referto non entra nell'indice, e una
+    /// riga in più è un file che il banco non conosce. Il secondo è meno
+    /// grave del primo e più subdolo, perché una riga in più sembra ricchezza.
+    fn c_indice_completo(&self, esito: &Result<Uscita, PipelineError>) -> Esito {
+        let u = match esito {
+            Ok(u) => u,
+            Err(e) => return Esito::Saltato(e.to_string()),
+        };
+        if let Some(e) = self.senza_file() {
+            return e;
+        }
+        let riportati: BTreeSet<&str> = u.items.iter().map(|d| d.rel_path.as_str()).collect();
+        let mut problemi = Vec::new();
+        for f in self.corpus.artefatti() {
+            if !riportati.contains(f.rel.as_str()) {
+                problemi.push(format!(
+                    "{}: la pipeline non lo ha riportato, e un file che non entra nell'indice non produce nessun errore — scompare",
+                    f.rel
+                ));
+            }
+        }
+        for rel in &riportati {
+            if self.corpus.file_di(rel).is_none() {
+                problemi.push(format!(
+                    "{rel}: la pipeline lo ha riportato e non è un file di questa radice, e un banco che non conosce un file non può dire se quel file è a posto"
+                ));
+            }
+        }
+        Esito::fallito_collect(problemi)
     }
 
     fn c_validazione(&self, u: &Uscita) -> Esito {
@@ -1729,6 +2527,17 @@ impl<'a> Banco<'a> {
     }
 }
 
+/// I quattro nomi dei controlli di D4, nell'ordine in cui la seconda strada
+/// esegue i suoi atti. Sono una costante perché i due rami — tabella e file
+/// reali — devono produrre gli stessi quattro nomi: un controllo che sparisce
+/// quando cambia il corpus è un controllo che qualcuno ha spento, non uno
+/// che ha dichiarato di non poter giudicare.
+const NOMI_D4: [&str; 4] = [
+    "pipeline.d4.su_un_corpus_non_ratificato_niente_e_citabile",
+    "pipeline.d4.la_promozione_e_l_atto_del_docente",
+    "pipeline.d4.dopo_la_promozione_e_citabile_esattamente_il_gruppo_promosso",
+    "pipeline.d4.il_contratto_riscritto_sotto_una_ratifica_viva_esce_dal_citabile",
+];
 
 fn c(nome: &'static str, esito: Esito) -> Controllo {
     Controllo { nome, di_pipeline: false, esito }
@@ -1736,6 +2545,52 @@ fn c(nome: &'static str, esito: Esito) -> Controllo {
 
 fn pc(nome: &'static str, esito: Esito) -> Controllo {
     Controllo { nome, di_pipeline: true, esito }
+}
+
+/// Le aperture di tag di un artefatto, ciascuna con i suoi attributi.
+///
+/// Non è un parser di HTML e non deve esserlo: quello che il banco deve
+/// verificare è che certi attributi **stiano sulla stessa apertura**, e un
+/// parser che appiattisse il documento non potrebbe dirlo. Il testo delle
+/// aperture compresi fra `<` e `>` è grezzo, con i suoi apici e i suoi spazi,
+/// perché è l'attributo che conta e non la sua resa.
+fn aperture(artefatto: &str) -> impl Iterator<Item = &str> {
+    artefatto
+        .match_indices('<')
+        .filter_map(|(i, _)| {
+            let resto = &artefatto[i + 1..];
+            let fine = resto.find('>')?;
+            // I commenti, la dichiarazione e le istruzioni di elaborazione non
+            // sono aperture: un attributo cercato dentro un commento è un
+            // attributo che qualcuno ha commentato, e commentare un'id non
+            // crea un'id. Un tag auto-chiuso invece lo è — `<span id="x"/>` ha
+            // un'id, e la sua auto-chiusura non lo annulla.
+            let testo = &resto[..fine];
+            (!testo.starts_with('!') && !testo.starts_with('?')).then_some(testo)
+        })
+}
+
+/// Il valore di un attributo dentro un'apertura di tag.
+fn attributo(tag: &str, nome: &str) -> Option<String> {
+    let i = tag.find(&format!(" {nome}=\""))? + nome.len() + 3;
+    let valore = &tag[i..];
+    let fine = valore.find('"')?;
+    Some(valore[..fine].to_string())
+}
+
+/// I valori di un attributo in un testo, nell'ordine in cui compaiono.
+fn attributi<'a>(artefatto: &'a str, nome: &str) -> Vec<&'a str> {
+    let needle = format!("{nome}=\"");
+    let mut out = Vec::new();
+    let mut da = 0;
+    while let Some(k) = artefatto[da..].find(&needle) {
+        let i = da + k + needle.len();
+        let resto = &artefatto[i..];
+        let Some(fine) = resto.find('"') else { break };
+        out.push(&resto[..fine]);
+        da = i + fine + 1;
+    }
+    out
 }
 
 fn short(h: &str) -> String {
@@ -1748,6 +2603,24 @@ pub fn famiglie_coperte(c: &Corpus) -> Vec<families::Family> {
     out.sort();
     out.dedup();
     out
+}
+
+/// Il `content` del `<meta name="…">` di un artefatto, se c'è.
+///
+/// Non è un parser di HTML e non pretende di esserlo: cerca l'intestazione
+/// per nome e legge ciò che segue, che è la convenzione che `kbs-doc` legge e
+/// che i ventuno file di `corpus-ite/` usano tutti. Se un domani scrivesse i
+/// meta in un altro ordine o con un altro separatore, questa funzione
+/// restituirebbe `None` e il controllo che la chiama direbbe che non ha
+/// trovato la dichiarazione — che è un fatto, non un errore di sintassi.
+fn meta_di(artefatto: &str, nome: &str) -> Option<String> {
+    let testa = format!("<meta name=\"{nome}\"");
+    let i = artefatto.find(&testa)?;
+    let dopo = &artefatto[i + testa.len()..];
+    let j = dopo.find("content=\"")? + "content=\"".len();
+    let valore = &dopo[j..];
+    let fine = valore.find('"')?;
+    Some(valore[..fine].to_string())
 }
 
 /// La profondità massima della catena di prerequisiti fra gli item validi.
@@ -1829,6 +2702,51 @@ fn cerca_ciclo(voci: &[Spec], validi: &std::collections::BTreeSet<&str>) -> Opti
     None
 }
 
+/// Un ciclo nel grafo dei prerequisiti dichiarati nei file, se c'è.
+///
+/// È la stessa domanda di [`cerca_ciclo`] con una fonte diversa: sul banco il
+/// grafo viene dalle voci di tabella e riguarda gli item validi, sui file reali
+/// viene dagli attributi e riguarda tutti i file. Due implementazioni perché le
+/// due ontologie sono diverse, non perché la domanda lo sia.
+fn cerca_ciclo_su_grafo(grafo: &BTreeMap<&str, Vec<&str>>) -> Option<Vec<String>> {
+    fn dfs(
+        nodo: &str,
+        grafo: &BTreeMap<&str, Vec<&str>>,
+        pila: &mut Vec<String>,
+        fatto: &mut BTreeSet<String>,
+    ) -> Option<Vec<String>> {
+        if let Some(i) = pila.iter().position(|v| v == nodo) {
+            let mut c = pila[i..].to_vec();
+            c.push(nodo.to_string());
+            return Some(c);
+        }
+        if fatto.contains(nodo) {
+            return None;
+        }
+        pila.push(nodo.to_string());
+        if let Some(dip) = grafo.get(nodo) {
+            for p in dip {
+                if let Some(c) = dfs(p, grafo, pila, fatto) {
+                    return Some(c);
+                }
+            }
+        }
+        pila.pop();
+        fatto.insert(nodo.to_string());
+        None
+    }
+    let mut pila = Vec::new();
+    let mut fatto = BTreeSet::new();
+    for nodo in grafo.keys() {
+        if !fatto.contains(*nodo) {
+            if let Some(c) = dfs(nodo, grafo, &mut pila, &mut fatto) {
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
 /// Conta i file sotto `radice`, chiamando `f` per ciascuno. **Tutti** i file,
 /// non solo gli HTML e i JSON: un file che nessuno ha descritto è rumore che
 /// un banco deve dire, e un rumore che il banco non vede è rumore che qualcuno
@@ -1884,6 +2802,167 @@ mod tests {
         nomi.dedup();
         assert_eq!(nomi.len(), n, "due controlli hanno lo stesso nome");
         assert_eq!(n, 25, "il banco ha 14 controlli sul corpus e 11 sulla pipeline");
+    }
+
+    /// La radice del corpus reale del workspace, se c'è. Il test **non** la
+    /// salta: se manca, il banco su file reali non è mai girato in questa
+    /// esecuzione, e un test che passa perché non ha fatto niente è la cosa
+    /// peggiore che un test possa fare.
+    fn corpus_ite() -> PathBuf {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("la radice del workspace")
+            .join("corpus-ite");
+        assert!(
+            p.is_dir(),
+            "{} non c'è: il banco non può essere girato su un corpus reale, e questa prova vale meno di niente",
+            p.display()
+        );
+        p
+    }
+
+    fn gira_su_file_reali() -> Referto {
+        let assente = crate::adapter::PipelineAssente { ragione: "binario assente".into() };
+        Banco::new(Config::su_file_reali(corpus_ite()), &assente).esegui()
+    }
+
+    /// Il banco gira su `corpus-ite/` e **non è rosso per ragioni sue**. I
+    /// file di quel corpus sono ventuno, sono scolastici, e non portano
+    /// nessuna delle dichiarazioni che la tabella dei fixture porta. Se un
+    /// controllo fosse rosso lì, il difetto sarebbe del banco: il primo file
+    /// del mondo reale avrebbe addestrato il banco a essere rosso, e un banco
+    /// che è rosso sul primo file che incontra non distingue più niente.
+    ///
+    /// I rossi che *restano* sono rossi del corpus, e sono due fatti verificati
+    /// a mano: un `kb-argument` che non è il percorso del file, e ventiquattro
+    /// sezioni oltre budget. Il test li conta per impedire che la lista
+    /// cambiatinghi in silenzio.
+    #[test]
+    fn su_corpus_reale_il_banco_e_rosso_solo_per_fatti_del_corpus() {
+        let r = gira_su_file_reali();
+        assert_eq!(r.item, 21, "il corpus reale ha ventuno file, e un referto che ne conta un altro mente");
+        let falliti: Vec<&str> = r
+            .controlli
+            .iter()
+            .filter(|c| matches!(c.esito, Esito::Fallito(_)))
+            .map(|c| c.nome)
+            .collect();
+        // Il test era agganciato ai due rossi per nome, cosi' che cambiarli
+        // fosse una decisione e non un effetto collaterale. Sono stati
+        // corretti entrambi: il `kb-argument` del primo argomento non era il suo
+        // percorso, e le sezioni LIMITE e VERIFICA superavano un budget che
+        // era incompatibile col loro compito. Adesso l'attesa e' zero, e la
+        // frase resta quella che conta: **qualsiasi rosso che riappariva qui
+        // e' un difetto del banco**, non un fatto del corpus.
+        assert!(
+            falliti.is_empty(),
+            "il banco e' rosso su fatti che non sono del corpus: {falliti:?}"
+        );
+    }
+
+    /// Un check che tace e un check che non esiste sono la stessa cosa per chi
+    /// legge. Su un corpus reale nessun controllo sparisce: o dà un verdetto,
+    /// o dichiara che non poteva darlo.
+    #[test]
+    fn su_corpus_reale_nessun_controllo_scompare_e_ogni_non_valutabile_dice_perche() {
+        let r = gira_su_file_reali();
+        let tabella = Banco::new(Config::radice_di_default(), &crate::adapter::PipelineAssente { ragione: "x".into() }).esegui();
+        for nome in tabella.controlli.iter().map(|c| c.nome) {
+            assert!(
+                r.controllo(nome).is_some(),
+                "{nome}: il controllo esiste sul banco di tabella e sparisce su file reali, e un controllo che sparisce è un controllo che qualcuno ha spento"
+            );
+        }
+        assert!(
+            r.non_valutabili() > 0,
+            "su ventuno file scolastici qualche controllo deve essere non valutabile: se non lo è, il banco ha dichiarato superato qualcosa che non poteva guardare"
+        );
+        for c in r.controlli.iter() {
+            if let Esito::NonValutabile(why) = &c.esito {
+                assert!(why.len() > 40, "{}: la ragione è troppo breve per essere una ragione", c.nome);
+            }
+        }
+    }
+
+    /// Un non valutabile non è un fallimento e non è un verde. Il test lo
+    /// dichiara per entrambi i lati, perché un banco che tornasse rosso su un
+    /// corpus che non può violare una premessa avrebbe la stessa utilità di
+    /// prima, e uno che tornasse verde avrebbe smesso di dire la verità.
+    #[test]
+    fn un_non_valutabile_non_e_rosso_e_non_e_verde() {
+        let assente = crate::adapter::PipelineAssente { ragione: "binario assente".into() };
+        let banco = Banco::new(Config::su_file_reali(corpus_ite()), &assente);
+        let r = banco.esegui();
+        let solo_non_valutabili: Vec<&Controllo> = r
+            .controlli
+            .iter()
+            .filter(|c| matches!(c.esito, Esito::NonValutabile(_)))
+            .collect();
+        assert!(!solo_non_valutabili.is_empty());
+        for c in &solo_non_valutabili {
+            assert!(c.esito.e_verde(), "{}: un non valutabile non è un rosso", c.nome);
+            assert_ne!(c.esito, Esito::Superato, "{}: un non valutabile non è un verde", c.nome);
+        }
+        // E in CI: la regola di rigidezza rende un saltato un fallimento, e
+        // lascia un non valutabile com'era. Se il non valutabile fosse un
+        // fallimento in CI, l'unico modo per essere verdi sarebbe non avere un
+        // corpus reale.
+        let solo: Referto = Referto {
+            controlli: solo_non_valutabili.into_iter().cloned().collect(),
+            item: 0,
+            famiglie: 0,
+            hash_corpus: String::new(),
+            pipeline: String::new(),
+            radice: String::new(),
+            fonte: Some("file-reali"),
+            file_ignoti: Vec::new(),
+        };
+        assert!(solo.esito_con_rigidezza(true));
+    }
+
+    /// Il banco guarda i **file**, e li guarda tutti. Una lettura incompleta è
+    /// il difetto più insidioso che un banco possa avere, perché un file che
+    /// non ha letto non produce alcun errore: produce assenza.
+    #[test]
+    fn su_corpus_reale_il_banco_ha_letto_tutti_i_file() {
+        let r = gira_su_file_reali();
+        assert_eq!(r.item, 21);
+        assert!(r.file_ignoti.is_empty(), "file non letti: {:?}", r.file_ignoti);
+        assert!(
+            r.controllo("corpus.i_file_sono_uguali_a_cio_che_la_tabella_descrive")
+                .is_some_and(|c| c.esito == Esito::Superato),
+            "il controllo di lettura completa doveva essere superato su un corpus di ventuno file leggibili"
+        );
+    }
+
+    /// I due rami producono lo stesso numero di controlli, e i nomi sono gli
+    /// stessi. Un controllo in più sul ramo dei file reali è lecito — ed è
+    /// quello che verifica che la pipeline abbia indicizzato tutto — ma
+    /// nessuno sparisce.
+    #[test]
+    fn i_due_rami_producono_lo_stesso_insieme_di_nomi() {
+        let assente = crate::adapter::PipelineAssente { ragione: "assente".into() };
+        let tabella = Banco::new(Config::radice_di_default(), &assente).esegui();
+        let reali = gira_su_file_reali();
+        for c in tabella.controlli.iter() {
+            assert!(
+                reali.controllo(c.nome).is_some(),
+                "{}: sparisce sul ramo dei file reali",
+                c.nome
+            );
+        }
+        let nuovi: Vec<&str> = reali
+            .controlli
+            .iter()
+            .map(|c| c.nome)
+            .filter(|n| tabella.controllo(n).is_none())
+            .collect();
+        assert_eq!(
+            nuovi,
+            vec!["pipeline.ogni_file_della_radice_e_indicizzato"],
+            "l'unico controllo che il ramo dei file reali aggiunge è quello che nessun altro fa: verificare che la pipeline abbia indicizzato ogni file"
+        );
     }
 
     /// Un banco senza pipeline non è un banco verde: è un banco che ha detto

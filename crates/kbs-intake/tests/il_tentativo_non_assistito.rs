@@ -72,13 +72,16 @@ fn banco() -> Store {
         created_at: Millis(0),
     })
     .expect("studente");
-    s.add_relation(&kbs_store::CourseRelation {
-        person: marco(),
-        course: corso(),
-        relation: kbs_core::Relation::EnrolledIn,
-        since: Millis(0),
-        until: None,
-    })
+    s.add_relation(
+        &kbs_store::CourseRelation {
+            person: marco(),
+            course: corso(),
+            relation: kbs_core::Relation::EnrolledIn,
+            since: Millis(0),
+            until: None,
+        },
+        &docente(),
+    )
     .expect("iscrizione");
     route::receive(
         &mut s,

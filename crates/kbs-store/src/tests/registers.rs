@@ -380,13 +380,16 @@ fn chi_ha_emesso_il_giudizio_lo_rivede_e_il_compagno_no() {
         })
         .expect("persona");
     s.store
-        .add_relation(&crate::types::CourseRelation {
-            person: pari.clone(),
-            course: s.course.clone(),
-            relation: kbs_core::Relation::EnrolledIn,
-            since: Millis(T0),
-            until: None,
-        })
+        .add_relation(
+            &crate::types::CourseRelation {
+                person: pari.clone(),
+                course: s.course.clone(),
+                relation: kbs_core::Relation::EnrolledIn,
+                since: Millis(T0),
+                until: None,
+            },
+            &pari,
+        )
         .expect("iscrizione del pari");
     s.store
         .append_grading(

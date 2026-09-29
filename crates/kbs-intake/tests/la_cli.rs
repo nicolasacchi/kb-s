@@ -334,3 +334,180 @@ fn un_database_vuoto_creato_da_zero_e_il_posto_giusto_per_il_referto() {
     let s = Store::open(&dbp).unwrap();
     assert!(s.schema_epoch().unwrap() > 0);
 }
+
+// ── `kbs insegna`: la relazione che mancava ────────────────────────────────
+
+/// Un banco con un argomento scritto da `person_0001` e il roster della scuola.
+///
+/// Il roster è registrato **a mano** e questa è la parte che il verbo non fa:
+/// `insegna` non crea persone, perché `upsert_person` sovrascrive
+/// `display_name` e creare un collega col suo id come nome significa rinominare
+/// un collega vero. Il registro delle persone è della scuola, e questo banco lo
+/// costruisce come lo costruisce `la_diagnosi_si_registra_e_le_generazioni_si_
+/// rileggono`.
+fn banco_con_corso(d: &tempfile::TempDir) -> std::path::PathBuf {
+    let dbp = d.path().join("k.sqlite");
+    let cattura = esegui(
+        &format!("capture --db {} --person person_0001", dbp.display()),
+        &format!(
+            "Corso: {CORSO}\nRel-Path: {REL}\n\n```artifact\n{}\n```",
+            artifact(false)
+        ),
+    );
+    assert_eq!(cattura.uscita, Uscita::Ok, "stderr: {}", cattura.stderr);
+    let mut s = Store::open(&dbp).unwrap();
+    s.upsert_person(&kbs_store::Person {
+        id: kbs_core::PersonId("person_0002".into()),
+        display_name: "collega".into(),
+        created_at: kbs_core::Millis(0),
+    })
+    .unwrap();
+    dbp
+}
+
+#[test]
+fn il_collega_che_non_ha_scritto_niente_non_vede_il_corso_fino_a_che_non_insegna() {
+    let d = db();
+    let dbp = banco_con_corso(&d);
+    // Prima: il predicato di D5 dice no, e dice no per la ragione giusta — il
+    // collega non è l'autore e `relations` è vuota. Non è un errore di uso e
+    // non è un incidente: è «non lo vedi».
+    let prima = esegui(
+        &format!("read --db {} --person person_0002 --arg {REL}", dbp.display()),
+        "",
+    );
+    assert_ne!(prima.uscita, Uscita::Ok, "prima di insegnare deve essere rifiutato");
+
+    let insegna = esegui(
+        &format!(
+            "insegna --db {} --person person_0001 --course {CORSO} --docente person_0002",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(insegna.uscita, Uscita::Ok, "stderr: {}", insegna.stderr);
+    let v = insegna.json();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["command"], "insegna");
+    assert_eq!(v["relation"], "teaches");
+    assert_eq!(v["docente"], "person_0002");
+    // `--person` è chi ha registrato la riga, e la riga lo dice: `relations` è
+    // la tabella che decide chi vede cosa ed è l'unica che doveva dire chi ha
+    // scritto (`V8`).
+    assert_eq!(v["registrato_da"], "person_0001");
+    assert_eq!(v["recorded"], true);
+
+    // Dopo: lo stesso comando, la stessa persona, e adesso la risposta è il
+    // materiale. È il buco chiuso, verificato sulle due estremità.
+    let dopo = esegui(
+        &format!("read --db {} --person person_0002 --arg {REL}", dbp.display()),
+        "",
+    );
+    assert_eq!(dopo.uscita, Uscita::Ok, "stderr: {}", dopo.stderr);
+    // L'id segue il percorso relativo, mai i byte (`ArgumentId::from_rel_path`),
+    // e il percorso torna nella riga: quello che il docente rivede è l'argomento
+    // del corso, non un altro.
+    assert_eq!(dopo.json()["rel_path"], REL);
+    assert_eq!(
+        dopo.json()["id"],
+        kbs_core::ArgumentId::from_rel_path(REL).as_str()
+    );
+}
+
+#[test]
+fn insegnare_twice_non_doppia_la_riga_e_la_prima_provenienza_resta() {
+    let d = db();
+    let dbp = banco_con_corso(&d);
+    let a = esegui(
+        &format!(
+            "insegna --db {} --person person_0001 --course {CORSO} --docente person_0002 --at 1000",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(a.uscita, Uscita::Ok, "stderr: {}", a.stderr);
+    let b = esegui(
+        &format!(
+            "insegna --db {} --person person_0001 --course {CORSO} --docente person_0002 --at 2000",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(b.uscita, Uscita::Ok, "stderr: {}", b.stderr);
+    // La seconda esecuzione **dichiara** che non ha scritto niente. Un `ok`
+    // identico nelle due forme senza dire quale è successa sarebbe
+    // l'ambiguità che questo protocollo dichiara di non avere.
+    assert_eq!(b.json()["recorded"], false);
+    assert_eq!(b.json()["already"], true);
+
+    // E la tabella ha una riga sola: `since` è nella PK, e senza questa domanda
+    // un verbo rieseguito a mano riempirebbe il registro di riprese di ruolo che
+    // nessuno ha chiesto.
+    let s = Store::open(&dbp).unwrap();
+    let (righe, provenienza): (i64, Option<String>) = s
+        .conn()
+        .query_row(
+            "SELECT COUNT(*), MAX(recorded_by) FROM relations WHERE relation = 'teaches'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(righe, 1);
+    assert_eq!(provenienza.as_deref(), Some("person_0001"));
+}
+
+#[test]
+fn insegnare_a_una_persona_che_non_c_e_o_a_un_corso_che_non_c_e_esce_due_e_dice_qual_e() {
+    let d = db();
+    let dbp = banco_con_corso(&d);
+    // La persona: `people` è il roster della scuola, e questo verbo non lo
+    // inventa. Le due risposte sono diverse e lo dicono: una è «manca la
+    // persona», l'altra «manca il corso».
+    let persona = esegui(
+        &format!(
+            "insegna --db {} --person person_0001 --course {CORSO} --docente person_9999",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(persona.uscita, Uscita::Rifiutata);
+    assert_eq!(persona.json()["error"]["code"], "persona-assente");
+    assert!(persona.stderr.contains("persona-assente"), "stderr: {}", persona.stderr);
+
+    // Il corso: `relations.course_id` referenzia `sources`, e una relazione su
+    // un corso che non esiste non darebbe a nessuno nessun diritto — il
+    // predicato parte dal corso. Rifiutarlo qui è più onesto che lasciarsi
+    // fermare da un `FOREIGN KEY constraint failed` che non nomina nessuno.
+    let corso = esegui(
+        &format!(
+            "insegna --db {} --person person_0001 --course non-esiste --docente person_0002",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(corso.uscita, Uscita::Rifiutata);
+    assert_eq!(corso.json()["error"]["code"], "corso-assente");
+    assert!(corso.stderr.contains("corso-assente"), "stderr: {}", corso.stderr);
+}
+
+#[test]
+fn nessuna_delle_tre_opzioni_ha_un_default() {
+    // Un default su `--person` scriverebbe `recorded_by = NULL`, che è
+    // esattamente il buco che `V8` chiude; un default su `--docente` scriverebbe
+    // `teaches` a qualcuno che non l'ha chiesto. Le tre esistono, quindi
+    // l'esito è `opzione-mancante` e il codice è 3.
+    let dir = db();
+    let dbp = banco_con_corso(&dir);
+    for (manca, riga) in [
+        ("person", format!("insegna --db {} --course {CORSO} --docente person_0002", dbp.display())),
+        ("course", format!("insegna --db {} --person person_0001 --docente person_0002", dbp.display())),
+        (
+            "docente",
+            format!("insegna --db {} --person person_0001 --course {CORSO}", dbp.display()),
+        ),
+    ] {
+        let c = esegui(&riga, "");
+        assert_eq!(c.uscita, Uscita::Uso, "manca `--{manca}`: {}", c.stderr);
+        assert_eq!(c.json()["error"]["code"], "opzione-mancante", "manca `--{manca}`");
+    }
+}

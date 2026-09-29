@@ -28,9 +28,22 @@ USO:
 
 OPZIONI DI `run`:
     --corpus <cartella>    la radice del corpus (default: crates/kbs-fixtures/corpus)
+    --file-reali           la radice è un CORPUS DI FILE VERI, non la resa della
+                           tabella: il banco lo legge, e i controlli la cui
+                           premessa quel corpus non dichiara tornano
+                           «non valutabili» con la ragione. Su corpus-ite/:
+                               kbs-bench run --file-reali --corpus corpus-ite
     --kbs <binario>        il binario della pipeline (default: KBS_BIN, poi target/debug/kbs)
     --json                 stampa il referto in JSON invece che in testo
     --require-pipeline     un controllo saltato è un fallimento: è la regola della CI
+
+GLI ESITI DI UN CONTROLLO:
+    superato / fallito / saltato / non-valutabile. Il quarto è la novità di
+    --file-reali: «non ho potuto verificare, e questo è il perché». Non è un
+    fallimento (il difetto non è del corpus) e non è un rosso del banco. Il
+    referto JSON lo dichiara in un campo per controllo, «non_valutabile», e in
+    un totale in testa, perché un referto senza quel numero è un referto in cui
+    ventitré controlli tacciono.
 
 CONTRATTO CON LA PIPELINE:
     kbs-bench esegue una SEQUENZA di atti, non un comando solo:
@@ -78,11 +91,13 @@ fn valore<'a>(args: &'a [String], nome: &str) -> Option<&'a str> {
 fn run(args: &[String]) -> ExitCode {
     let require = flag(args, "--require-pipeline");
     let json = flag(args, "--json");
+    let file_reali = flag(args, "--file-reali");
     let cfg = match valore(args, "--corpus") {
         Some(p) => Config::con_radice(PathBuf::from(p)),
         None => Config::radice_di_default(),
     }
-    .con_rigidezza(require);
+    .con_rigidezza(require)
+    .su_file_veri(file_reali);
 
     // La pipeline si cerca una volta sola: se non c'è, i controlli che la
     // richiedono sono saltati **tutti** con la stessa ragione, e la ragione
@@ -113,6 +128,17 @@ fn run(args: &[String]) -> ExitCode {
 
     let banco = Banco::new(cfg, pipeline.as_ref());
     let referto = banco.esegui();
+    // Un banco che ha letto una cartella e ha lasciato dei controlli non
+    // valutabili lo dice **prima** del referto, perché la lettura frettolosa
+    // guarda le prime righe e il fondo del file. Un referto verde con ventitré
+    // controlli non valutati in fondo si legge come un referto verde.
+    if referto.fonte.is_some() && referto.non_valutabili() > 0 {
+        eprintln!(
+            "kbs-bench: {} controlli NON VALUTABILI su questo corpus: la premissa che cercano non è dichiarata da questi file.",
+            referto.non_valutabili()
+        );
+        eprintln!("kbs-bench: non sono fallimenti e non sono verdi: sono «non ho potuto guardare», e il perché è nel referto.");
+    }
     if json {
         print!("{}", report::in_json(&referto, require));
     } else {

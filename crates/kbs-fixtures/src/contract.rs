@@ -24,12 +24,15 @@ pub const SECTIONS: [(&str, usize); 8] = [
     ("SCALA", 1_536),
     ("EQUIVOCI", 1_024),
     ("ESEMPIO-LAVORATO", 1_536),
-    ("VERIFICA", 512),
-    ("LIMITE", 256),
+    ("VERIFICA", 768),
+    // Stessa cifra di kbs_doc::contract::SECTIONS, perche' e' lo stesso contratto.
+    // Le due tabelle sono due copie: quando divergono il banco dice una cosa e
+    // l'intake un'altra, ed e' il difetto che questo modulo dichiara altrove.
+    ("LIMITE", 768),
 ];
 
 /// Somma dei budget: 6 272 byte.
-pub const BUDGET_SOMMA: usize = 6_272;
+pub const BUDGET_SOMMA: usize = 7_040;
 
 /// Hard cap sul contratto intero (D7).
 pub const HARD_CAP: usize = 8_192;
@@ -239,6 +242,53 @@ pub fn measure(testo: &str) -> Vec<(&'static str, Measurement)> {
     out
 }
 
+/// `true` se il testo porta almeno una delle otto intestazioni del contratto.
+///
+/// È la domanda che distingue «un contratto che non sta nei budget» da «un
+/// testo che non è un contratto». Senza questa distinzione un banco che
+/// guardasse un corpus di file veri — dove nessun file porta le otto
+/// intestazioni, perché quelle le scrive `render` e non un docente — misurerebbe
+/// zero sezioni e concluderebbe che sono ventuno contratti mancanti. Sarebbe
+/// un rosso del banco, non del corpus, e un rosso del banco è la cosa che
+/// rende un banco inutilizzabile su qualsiasi file che non abbia lui scritto.
+///
+/// Non è una validazione: dice solo che il testo parla la lingua del
+/// contratto. Se lo parla, i budget si misurano; se non la parla, il
+/// controllo che li misura non ha niente su cui lavorare e deve dichiararlo.
+pub fn dichiara_il_contratto(testo: &str) -> bool {
+    SECTIONS
+        .iter()
+        .any(|(nome, _)| testo.contains(&format!("{SECTION_HEADING}{nome}")))
+}
+
+/// Il testo del contratto **dentro un artefatto**, cioè il contenuto del
+/// `<template id="kb-kbprompt">`.
+///
+/// `measure` misura un testo che **è** un contratto. Passandogli un file
+/// HTML intero si misurerebbe anche ciò che segue l'ultima sezione —
+/// `</template>`, `</body>`, `</html>` — e l'ultima sezione, `LIMITE`, che è
+/// l'ultima per ordine, risulterebbe sempre oltre budget. Non è un dettaglio:
+/// è il modo in cui un banco dice «ventuno file hanno il LIMITE troppo lungo»
+/// quando in realtà ha misurato tre righe di markup. Su `corpus-ite/` il
+/// `LIMITE` più corto è di 261 byte e nessuno dei ventuno file supera gli otto
+/// kilobyte: il rosso sarebbe intero inventato.
+///
+/// `None` se l'artefatto non ha quel template, e `None` è un fatto da dire e
+/// non un errore da tacere: un file senza contratto non è un file con un
+/// contratto vuoto.
+pub fn dal_template(artefatto: &str, id: &str) -> Option<String> {
+    let apertura = format!("<template id=\"{id}\">");
+    let i = artefatto.find(&apertura)? + apertura.len();
+    let fine = artefatto[i..].find("</template>")? + i;
+    Some(artefatto[i..fine].to_string())
+}
+
+/// L'id del template in cui vive il contratto. È una costante e non una
+/// stringa in tre posti perché il nome del template è ciò che legge
+/// `kbs-doc`, e un banco che ne cerca un altro starebbe misurando il vuoto e
+/// chiamandolo verdetto.
+pub const TEMPLATE_ID: &str = "kb-kbprompt";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,7 +308,9 @@ mod tests {
     fn budget_e_margine_coerenti() {
         let somma: usize = SECTIONS.iter().map(|(_, b)| b).sum();
         assert_eq!(somma, BUDGET_SOMMA);
-        assert_eq!(MARGINE, 1_920);
+        // Derivato come in kbs_doc::contract, per lo stesso motivo: due copie di
+        // questo numero divergono e nessuno se ne accorge.
+        assert_eq!(MARGINE, HARD_CAP - BUDGET_SOMMA);
         assert!(BUDGET_SOMMA < HARD_CAP);
         assert_eq!(SECTIONS[0].0, "GUARDIAN");
         assert_eq!(SECTIONS[0].1, 640);

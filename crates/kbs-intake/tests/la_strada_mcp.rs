@@ -237,3 +237,50 @@ fn la_strada_mcp_e_nella_lista_di_route_che_il_test_delle_quattro_controlla() {
     assert_eq!(persona, PersonId::fixture(1));
     let _ = Millis::now();
 }
+
+#[test]
+fn questa_strada_non_scrive_relazioni_e_il_verbo_insegna_non_e_un_metodo() {
+    // La parte non negoziabile di `kbs insegna`: il verbo scrive `teaches` e sta
+    // **solo** nella CLI locale. Su questo trasporto l'identita' e' dichiarata
+    // (`x-kbs-person` o `?person=`) e `identity.rs` dichiara testualmente che
+    // «il confine di sicurezza e' il deployment»: un metodo che scrivesse
+    // relazioni sarebbe la definizione di `teaches` in `kbs_core::may_read`, e
+    // chiunque potrebbe pronunciarlo. Percio' la domanda non e' «funziona?» ma
+    // «esiste?», e la risposta e' no — per entrambe le forme del nome.
+    for metodo in ["insegna", "kbs/insegna", "kbs/teaches", "kbs/relazione"] {
+        let mut store = store_con_corso();
+        let r = chiara(
+            &mut store,
+            &richiesta(
+                1,
+                metodo,
+                serde_json::json!({
+                    "person": "person_0001",
+                    "course": CORSO,
+                    "docente": "person_0002",
+                }),
+            ),
+        );
+        assert!(
+            r["error"].is_object(),
+            "`{metodo}` ha risposto con un risultato: la strada MCP scrive relazioni"
+        );
+        assert_eq!(r["error"]["code"], -32601, "`{metodo}`: {r}");
+        assert_eq!(r["error"]["data"]["kib_code"], "metodo-sconosciuto", "{r}");
+        assert!(
+            !mcp::METODI.contains(&metodo),
+            "`{metodo}` e' comparso nella lista dei metodi MCP"
+        );
+    }
+
+    // E la tabella e' ancora quella di prima: nessuna delle quattro richieste ha
+    // scritto una riga per `person_0002`, che nel banco non esiste neppure come
+    // persona. Un metodo che rispondesse «persona-assente» avrebbe gia' letto il
+    // roster di qualcun altro.
+    let store = store_con_corso();
+    let n: i64 = store
+        .conn()
+        .query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1, "solo la riga del docente del banco");
+}

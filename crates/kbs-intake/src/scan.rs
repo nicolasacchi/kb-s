@@ -212,8 +212,11 @@ pub struct Scan {
 ///
 /// `by` è l'operatore: è l'autore di ciò che non ha un autore proprio, ed è
 /// l'unico che può rileggere le bozze. `by` non è un ruolo (D5): è una persona,
-/// e la sua relazione col corso la stabilisce il chiamante con
-/// `kbs_store::add_relation`.
+/// e la sua relazione col corso **non** la stabilisce questa funzione — la
+/// registra il verbo `kbs insegna`, che chiama `kbs_store::add_relation`. Fino
+/// a quel verbo la riga qui sopra era una dichiarazione che nessun codice di
+/// produzione onorava: `relations` restava vuota e ogni percorso che chiede
+/// `teaches` (l'esercizio, lo scrutinio, l'export) era chiuso a tutti.
 pub fn indexa(
     store: &mut Store,
     radice: &Path,

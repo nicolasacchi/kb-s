@@ -129,6 +129,9 @@ pub enum Error {
     #[error("nessun corso: un argomento senza perimetro di condivisione non ha a chi essere condiviso (D5). Dichiararlo con `<meta name=\"kb-course\">` o passarlo con la richiesta")]
     CorsoMancante,
 
+    #[error("il corso `{id}` non è registrato: la relazione è per-corso e il predicato parte dal corso, quindi una relazione su un corso inesistente non darebbe a nessuno nessun diritto — la scriverebbe e non la leggerebbe mai nessuno")]
+    CorsoAssente { id: String },
+
 }
 
 impl Error {
@@ -173,6 +176,7 @@ impl Error {
             Error::ArgomentoAssente { .. } => "argomento-assente",
             Error::PersonaAssente { .. } => "persona-assente",
             Error::CorsoMancante => "corso-mancante",
+            Error::CorsoAssente { .. } => "corso-assente",
         }
     }
 }

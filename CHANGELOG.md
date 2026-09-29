@@ -117,8 +117,56 @@ codice. Un progetto che non elenca i propri buchi li ripete dentro se stesso.
   teorema» fa dire al docente una cosa che il registro non dice. Il numeratore
   di D9 e la superficie dello studente prendono le righe dallo stesso posto e
   non possono discordare.
+- **`kbs insegna`, e con essa la relazione che decide chi vede cosa.** Fino a
+  oggi `relations` era una tabella che **nessun codice di produzione
+  scriveva**: `Store::add_relation` esisteva, era testata, e i suoi soli
+  chiamanti erano test. Il daemon girava, il corpus era ratificato, e nessuno
+  poteva diventare `teaches` — quindi `Store::exercise` (D8), `register_scope`
+  (lo scrutinio) e `export_fixed_columns` (D12, `NotACourseTeacher`) erano
+  chiusi a ogni persona, e `kbs_server::capability::require` rispondeva
+  `Absent` su ogni rotta di corso. Il verbo scrive **`teaches` e nient'altro**:
+  il rifiuto di `author_of`, `ratified` e `speculative_for` in `add_relation` non
+  è stato allargato, perché sono fatti su un oggetto e il predicato li deriva
+  dagli argomenti.
+  **Non è una strada di rete.** Il verbo esiste solo nella CLI locale, e la
+  ragione è dichiarata dove va dichiarata: `kbs_server::identity` dice che
+  l'identità è *dichiarata* (`x-kbs-person`, `?person=`) e che «il confine di
+  sicurezza è il deployment». Su HTTP o su MCP un verbo che scrive relazioni
+  sarebbe la definizione letterale di `teaches` in `kbs_core::may_read`: chiunque
+  potrebbe dichiararsi docente di un corso e leggerne tutto. In CLI locale il
+  costo è una riga e il rischio è zero, perché chi esegue il comando ha già il
+  file del database in tasca. `kbs-intake/tests/la_strada_mcp.rs` lo prova per
+  nome, quindi il giorno in cui qualcuno lo espone l'MCP il banco diventa
+  rosso invece che la cosa diventa una discussione.
+  **Che cosa non c'è, detto qui perché un progetto che enumera le cose fatte e
+  tace sulle altre mente per omissione:** non c'è `kbs iscrivi` (l'iscrizione è
+  un'altra relazione e un altro percorso), non c'è un verbo che chiuda un
+  incarico (`Store::end_relation` esiste e la CLI non lo espone), non c'è una
+  **lettura** della provenienza — `relations_of` restituisce le relazioni e non
+  chi le ha registrate, e la colonna è raggiungibile solo da SQL finché non
+  servirà a un audit, cosa che è un'altra decisione —, e la provenienza non
+  entra nell'export D12, che esporta gli argomenti e non le relazioni.
+- **La provenienza delle relazioni** (`V8__provenienza_delle_relazioni.sql`):
+  `relations.recorded_by TEXT REFERENCES people (id)`, nullable. `relations` era
+  l'unica tabella che decide la visibilità e l'unica **senza** chi l'ha
+  scritta, mentre `claims`, `observations` e `gradings` portano l'emittente. Il
+  `NULL` vuol dire *non registrato*, non *nessuno*, ed è la semantica che `V6`
+  dà a `unaided IS NULL`; dichiarare retroattivamente un emittente sarebbe una
+  falsificazione firmata da una migrazione. **Nessuna foglia della catena di
+  hash cambia** — `relations` non è un registro — e l'export D12 resta a 20
+  colonne: è la differenza rispetto a `V6`, che lì lo dichiarava perché lì era
+  vero.
 
 ### Cambiato
+
+- **`Store::add_relation` chiede chi registra.** La firma è ora
+  `add_relation(&mut self, r: &CourseRelation, registrato_da: &PersonId)`. Il
+  parametro non è un campo di `CourseRelation` perché `CourseRelation` è **il
+  fatto** e chi lo ha premuto è **la dichiarazione del fatto**: dentro il fatto,
+  due persone che dichiarano la stessa relazione avrebbero descritto due fatti
+  diversi. Tutti i chiamanti sono stati migrati, nessuno è stato lasciato con un
+  valore inventato. È un'API interna che pre-1.0 non è stabile, quindi la
+  rottura è dichiarata e non scusata.
 
 - **La foglia di ogni riga di `observations` cambia.** `leaf_of` impegna il JSON
   canonico della riga intera, quindi aggiungere due campi a `Observation` cambia

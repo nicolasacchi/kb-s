@@ -67,6 +67,47 @@ impl Corpus {
         Corpus { file, voci }
     }
 
+    /// Costruisce un corpus dai **file di una cartella**, senza tabella.
+    ///
+    /// È il modo in cui il banco guarda un corpus che nessuna tabella
+    /// descrive: ventuno file scritti da un docente, non quaranta voci
+    /// dichiarate in un `const`. Le `voci` sono **vuote**, e deliberate:
+    /// un file su disco non sa quale famiglia di media sia, non porta un
+    /// difetto dichiarato e non porta una ratifica. Un corpus costruito
+    /// così non finge di saperlo, ed è per questo che i controlli che
+    /// dipendono dalla tabella devono dichiararsi non valutabili invece di
+    /// fallire — vedi `checks::Esito::NonValutabile`.
+    ///
+    /// I file non leggibili sono **saltati**, non sostituititi: una cartella
+    /// in cui un file è illeggibile produce un corpus più piccolo, e il
+    /// banco lo dice contando i file che ha trovato contro quelli che ha
+    /// letto.
+    pub fn da_cartella(radice: &Path) -> std::io::Result<Corpus> {
+        let mut trovati = Vec::new();
+        raccogli(radice, radice, &mut trovati);
+        trovati.sort();
+        let file: Vec<File> = trovati
+            .iter()
+            .filter_map(|rel| {
+                let contenuto = std::fs::read_to_string(radice.join(rel)).ok()?;
+                Some(File {
+                    rel: rel.clone(),
+                    contenuto,
+                })
+            })
+            .collect();
+        Ok(Corpus { file, voci: Vec::new() })
+    }
+
+    /// `true` se il corpus è stato letto da una cartella e non dalla
+    /// tabella. È la domanda che i controlli fanno per decidere se hanno
+    /// qualcosa da giudicare, ed è dichiarata come funzione e non come un
+    /// campo perché un campo che nessuno legge è un campo che mente.
+    pub fn da_disco(&self) -> bool {
+        self.voci.is_empty() && !self.file.is_empty()
+    }
+
+
     /// Il corpus con il **contratto** di un item riscritto, e con nient'altro
     /// cambiato: è la correzione che un docente fa dopo aver firmato, non un
     /// altra unità. Il resto dei file resta identico byte per byte, e un test
@@ -167,6 +208,41 @@ impl Corpus {
             .iter()
             .map(|f| (f.rel.as_str(), Self::hash_file(&f.contenuto)))
             .collect()
+    }
+}
+
+/// I percorsi relativi dei file **HTML** sotto `radice`, con `/` come
+/// separatore e in ordine di percorso.
+///
+/// Solo `.html`: è ciò che un corpus didattico è fatto, e un file di
+/// qualunque altro tipo nella stessa cartella è rumore che il referto
+/// dichiara per conto suo (`checks::file_ignoti`). La ricorsione è limitata
+/// alle sottodirectory e non segue i legami simbolici, perché un corpus che
+/// contiene un anello non è un corpus e il banco non deve passare un'eternità
+/// a scoprirlo.
+fn raccogli(base: &Path, dir: &Path, out: &mut Vec<String>) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut voci: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+    voci.sort();
+    for p in voci {
+        if p.is_symlink() {
+            continue;
+        }
+        if p.is_dir() {
+            raccogli(base, &p, out);
+            continue;
+        }
+        if p.extension().and_then(|e| e.to_str()) != Some("html") {
+            continue;
+        }
+        // Il percorso si misura dalla **base**, non dalla cartella in cui si
+        // sta scendendo: misurarlo da `dir` darebbe `01-soggetto.html` invece
+        // di `argomenti/01-soggetto.html`, e ventuno id sbagliati sono peggio
+        // di ventuno file non letti, perché il banco non se ne accorgerebbe.
+        let Ok(rel) = p.strip_prefix(base) else { continue };
+        out.push(rel.to_string_lossy().replace('\\', "/"));
     }
 }
 

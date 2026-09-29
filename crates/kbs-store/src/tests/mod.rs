@@ -99,13 +99,16 @@ impl School {
             ),
         ] {
             store
-                .add_relation(&CourseRelation {
-                    person,
-                    course: course_,
-                    relation,
-                    since: Millis(T0),
-                    until: None,
-                })
+                .add_relation(
+                    &CourseRelation {
+                        person: person.clone(),
+                        course: course_,
+                        relation,
+                        since: Millis(T0),
+                        until: None,
+                    },
+                    &person,
+                )
                 .expect("relazione");
         }
 

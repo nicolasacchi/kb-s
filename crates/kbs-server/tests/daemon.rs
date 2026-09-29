@@ -372,13 +372,16 @@ async fn istanza() -> (Istanza, daemon::InAscolto) {
                 (docente.clone(), corso.clone()),
                 (altro_docente.clone(), altro_corso.clone()),
             ] {
-                store.add_relation(&CourseRelation {
-                    person,
-                    course,
-                    relation: Relation::Teaches,
-                    since: Millis(T0),
-                    until: None,
-                })?;
+                store.add_relation(
+                    &CourseRelation {
+                        person: person.clone(),
+                        course,
+                        relation: Relation::Teaches,
+                        since: Millis(T0),
+                        until: None,
+                    },
+                    &person,
+                )?;
             }
             store.upsert_argument(&argomento)?;
             store.ratify(&argomento.id, &docente, "riga per riga")?;

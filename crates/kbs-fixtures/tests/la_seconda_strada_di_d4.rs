@@ -547,6 +547,7 @@ fn il_banco_verde_ha_i_quattro_controlli_di_d4_superati() {
             match &c.esito {
                 kbs_fixtures::Esito::Fallito(p) => p.join(" / "),
                 kbs_fixtures::Esito::Saltato(w) => format!("saltato — {w}"),
+                kbs_fixtures::Esito::NonValutabile(w) => format!("non valutabile — {w}"),
                 kbs_fixtures::Esito::Superato => "superato".into(),
             }
         );

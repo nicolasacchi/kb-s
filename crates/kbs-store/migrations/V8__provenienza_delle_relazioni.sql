@@ -1,0 +1,63 @@
+-- V8: chi ha scritto la riga che decide chi vede cosa.
+--
+-- ── Il buco che questa colonna chiude ──────────────────────────────────────
+--
+-- `relations` è l'unica tabella di questo schema che **non ha provenienza**,
+-- ed è l'unica che decide la visibilità. `claims` porta `emitted_by`,
+-- `observations` e `gradings` passano dal registro append-only che ha un
+-- emittente, `arguments` porta `origin_by` e `ratified_by`. `relations` porta
+-- `since` e `until` — due date — e nessun nome. Il predicato di D5 non chiede
+-- «che cosa è stato scritto», chiede «questa persona è legata a questo corso»,
+-- e la riga che lo decide è anonima.
+--
+-- L'anomalia era visibile solo da fuori: `Store::add_relation` esisteva, era
+-- testata, e i suoi soli chiamanti erano test. Il daemon girava, il corpus era
+-- ratificato, e la tabella restava vuota: nessuno vedeva niente, neanche
+-- l'autore, perché `may_read` chiede una relazione prima di `is_author`.
+--
+-- ── Perché `NULL` e non `NOT NULL` ──────────────────────────────────────────
+--
+-- Per la ragione che `V6` dichiara per `unaided`, e per la stessa ragione: le
+-- righe già scritte non hanno un emittente che qualcuno abbia dichiarato, e
+-- dichiarare retroattivamente `person_0000` o l'autore della riga sarebbe una
+-- falsificazione firmata da una migrazione. `NULL` vuol dire **non registrato**,
+-- non *nessuno*: sono due fatti diversi, e il secondo non si può sapere.
+--
+-- Con questa migrazione `NULL` è raggiungibile solo da codice di terze parti
+-- (`add_relation` pretende un `&PersonId` e lo scrive) o da SQL scritto a mano —
+-- che è il caso per cui il tipo della colonna è dichiarato sotto. Da `V8` in poi
+-- il percorso di prodotto che scrive relazioni è il verbo `kbs insegna`, e quel
+-- verbo passa sempre `--person`.
+--
+-- ── Perché la colonna non è nella PK ────────────────────────────────────────
+--
+-- La PK è `(person_id, course_id, relation, since)` e resta quella: `since` è
+-- nella chiave perché una relazione si può riprendere. `recorded_by` nella
+-- chiane avrebbe detto che due righe che differiscono solo per chi le ha
+-- registrate sono lo stesso fatto scritto due volte, che non è vero: sono lo
+-- stesso fatto **dichiarato due volte da due persone**, e la dichiarazione
+-- ripetuta è informazione — è la firma di chi ha premuto il tasto la prima
+-- volta. Levarla dalla PK significa anche che l'indicone esistente
+-- `relations_by_course (course_id, relation, until)` resta valido: le sue
+-- colonne sono tutte invarianti rispetto a questa aggiunta.
+--
+-- ── Cosa NON cambia ─────────────────────────────────────────────────────────
+--
+-- * **La catena di hash.** `relations` non è un registro: `kbs_verify::leaf_of`
+--   impegna `observations` e `gradings`, e questa tabella non c'era. Quindi
+--   **nessuna foglia già firmata cambia**, e un testimone firmato prima di questa
+--   migrazione torna con la testa ricalcolata. È la differenza rispetto a `V6`,
+--   che lì dichiarava perché lì era vero.
+-- * **L'export D12.** `export_fixed_columns` esporta gli argomenti citabili, e
+--   `relations` non è fra le sue tabelle. `FIXED_COLUMNS` resta a 20 colonne e
+--   la sua forma fissa non si sposta.
+-- * **Il predicato.** `may_read` legge `relations_of`, che continua a leggere
+--   `SELECT DISTINCT relation`. Una riga con `recorded_by IS NULL` dà la stessa
+--   risposta di prima: la provenienza è un fatto **su** la relazione, non una
+--   condizione per esistere.
+--
+-- -- `MAX` e non assegnazione, per la ragione che `V3` dichiara: l'ordine con cui
+-- -- refinery applica le migrazioni non è il loro numero.
+ALTER TABLE relations ADD COLUMN recorded_by TEXT REFERENCES people (id);
+
+UPDATE schema_epoch SET epoch = MAX(epoch, 8);

@@ -169,6 +169,22 @@ fn ogni_capacita_dichiara_il_test_che_la_demonstra() {
                         "{cap}: stato «{stato}» non dice perché la capacità non è dimostrata"
                     );
                 }
+                // Un controllo non valutabile non ha dimostrato niente, e su
+                // questa esecuzione non può: la capacità che dipende da lui
+                // non è dimostrata e la riga deve dirlo con le stesse parole
+                // di un saltato, perché la differenza — atto impossibile contro
+                // premessa assente — non cambia nulla per chi deve fidarsi o no
+                // della capacità.
+                Some(Esito::NonValutabile(why)) => {
+                    assert!(
+                        !stato.starts_with("dimostrata"),
+                        "{cap}: dichiarata «{stato}» ma il controllo {ultimo} non è valutabile ({why})"
+                    );
+                    assert!(
+                        stato.contains("non dimostrata"),
+                        "{cap}: stato «{stato}» non dice perché la capacità non è dimostrata"
+                    );
+                }
                 Some(Esito::Fallito(p)) => {
                     panic!("{cap}: il controllo {ultimo} è rosso: {p:?}")
                 }

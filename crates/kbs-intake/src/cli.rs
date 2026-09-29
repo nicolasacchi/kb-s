@@ -42,8 +42,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use kbs_core::{ArgumentId, CohortId, CourseId, Millis, PersonId};
-use kbs_store::{Person, Store};
+use kbs_core::{ArgumentId, CohortId, CourseId, Millis, PersonId, Relation};
+use kbs_store::{CourseRelation, Person, Store};
 use serde::{Deserialize, Serialize};
 
 use crate::capture;
@@ -149,6 +149,11 @@ VERBI:
     ratify             ratifica per l'hash di contenuto corrente (D4)
     promote            promuove a in-corso: esige verdetto e ratifica valida
     read               rilettura di un argomento
+    insegna            registra che una persona insegna un corso: scrive `teaches`
+                       solo in CLI, e serve perché `teaches` non è derivabile da
+                       nient'altro: senza quella riga restano chiusi l'esercizio,
+                       lo scrutinio e l'export. --docente è la persona che
+                       insegna, --person è chi ha registrato la riga.
     mcp                server MCP su stdio (D10.4)
     version            la versione di questo binario
 
@@ -251,9 +256,10 @@ fn dispatch(
             crate::mcp::servi(&mut store, &mut inp, out)?;
             Ok(serde_json::json!({ "servito": true }))
         }
+        "insegna" => insegna(args),
         altro => Err(Error::ComandoSconosciuto {
             nome: altro.to_string(),
-            noti: "capture, verify, lock, diagnose, tenta, generate, generations, ratify, promote, read, mcp, version, help",
+            noti: "capture, verify, lock, diagnose, tenta, generate, generations, ratify, promote, read, insegna, mcp, version, help",
         }),
     }
 }
@@ -695,6 +701,158 @@ fn leggi(args: &[String]) -> Result<serde_json::Value> {
     let store = apri(&o)?;
     let id = ArgumentId::from_rel_path(o.richiesta("arg")?);
     json(store.read_argument(&by, &id)?)
+}
+
+/// `kbs insegna` — la relazione che mancava.
+///
+/// # Il buco che chiude
+///
+/// `relations` era una tabella che nessun codice di produzione scriveva.
+/// `Store::add_relation` esisteva ed era testato, e i suoi soli chiamanti erano
+/// test; `scan::indexa` dichiarava che «la sua relazione col corso la stabilisce
+/// il chiamante», e il chiamante non esisteva.
+///
+/// Il predicato distingue due cose, e va detto con precisione **quale** delle
+/// due era chiusa. `kbs_core::may_read` apre a `is_author` e a `is_ratifier`
+/// **prima** di guardare le relazioni: chi ha scritto un argomento lo rivede,
+/// e quello non è il buco. Il buco è tutto il resto, che chiede `teaches` e non
+/// ha colpo di scena: `Store::exercise` (D8), `register_scope` in
+/// `registers.rs` (lo scrutinio), `export_fixed_columns` (D12, la porta
+/// `NotACourseTeacher`) e `kbs_server::capability::require`, che per ogni
+/// rotta di corso chiama `course_relations` e restituisce `Absent` se la lista
+/// è vuota. Un collega che insegnerebbe lo stesso corso, un amministratore
+/// della scuola, il docente davanti ai suoi studenti: **nessuno poteva
+/// diventare `teaches`**, perché nessuna strada di prodotto scriveva la tabella
+/// in cui `teaches` sta. Il caso «perché non vedo niente» è chiuso per un
+/// docente in una classe di prova, che è l'unico caso in cui questa riga ha un
+/// nome.
+///
+/// # Perché solo in CLI locale, e questa parte non è negoziabile
+///
+/// Su HTTP o su MCP questo verbo sarebbe un bypass completo di D5.
+/// `kbs_server::identity` dichiara che l'identità è **dichiarata, non
+/// autenticata** — arriva nell'header `x-kbs-person` o in `?person=` — e che «il
+/// confine di sicurezza è il deployment», cioè «se questo server è
+/// raggiungibile da fuori, chiunque può dichiarare chi è». Su quel trasporto un
+/// verbo che scrive relazioni significa, letteralmente: *dichiarati docente di
+/// un corso e leggi tutto quello che c'è*, e l'unico controllo che il sistema
+/// dichiara di avere è il predicato di visibilità, che la dichiarazione
+/// appena concessa soddisfa da sola. Non è un rischio teorico: è la definizione
+/// di `teaches` in `kbs_core::may_read`.
+///
+/// In CLI locale il costo è una riga e il rischio è zero, perché chi esegue il
+/// comando è già dentro la macchina che possiede il database: il file è suo, e
+/// `sqlite3` è a due passi. È la differenza fra *conquistare il diritto* e
+/// *avere il diritto in tasca*. Perciò questo verbo non è nell'MCP e non è
+/// nell'HTTP, e `la_strada_mcp` lo prova per nome: se un giorno l'MCP lo
+/// espone, quel test è rosso e la domanda torna a essere una domanda.
+///
+/// # Che cosa scrive, e che cosa non scrive
+///
+/// Scrive **una sola** relazione: `teaches`. `Store::add_relation` rifiuta
+/// `author_of`, `ratified` e `speculative_for` — sono fatti su un oggetto, non
+/// sul corso, e il predicato li deriva dagli argomenti — e quel rifiuto **non è
+/// stato allargato**: il predicato della guardia è lo stesso di prima, e un
+/// verbo che scrive relazioni non è il posto giusto per aggiungerne una quarta.
+///
+/// # Perché `--course` e `--docente` e non due argomenti posizionali
+///
+/// `Opzioni` mette i posizionali in un campo che **nessun verbo usa**, e
+/// l'unica eccezione è `verify`, che ha un solo ingresso — la radice del
+/// corpus. Un atto con due soggetti (`corso` e `persona`) in posizione è un
+/// atto in cui l'ordine conta e nessuno lo dichiara, e `kbs insegna A B`
+/// accetterebbe due richieste diverse a seconda di quale sia stato scritto per
+/// primo. Le opzioni nominate sono la forma che il resto della CLI usa e
+/// quella che un agente può comporre senza leggere `--help` per capire quale
+/// dei due fosse il corso.
+///
+/// Non crea **il docente** e non crea il corso; registra l'operatore, come fa
+/// `capture`. Una relazione che non si potesse appoggiare a `people` o a
+/// `sources` non darebbe a nessuno nessun diritto —
+/// il predicato parte dal corso, e `relations.course_id` referenzia `sources` —
+/// quindi le due esistenze sono verificate prima e il rifiuto è detto
+/// (`persona-assente`, `corso-assente`) invece di lasciarsi indurre da un
+/// `FOREIGN KEY constraint failed` che non nomina nessuno.
+///
+/// # La provenienza, che è il punto
+///
+/// `--person` non è il docente: è **chi ha registrato la riga**, e finisce in
+/// `relations.recorded_by` (la colonna di `V8`). `relations` era l'unica
+/// tabella che decide chi vede cosa e l'unica senza provenienza, mentre
+/// `claims`, `observations` e `gradings` portano chi ha emesso. Il predicato di
+/// D5 dice «questa persona insegna», e da `V8` il registro può anche dire **chi
+/// lo ha dichiarato** — che è la domanda che sorge quando qualcuno che non è
+/// docente vede un corso.
+///
+/// # Perché è idempotente
+///
+/// La PK di `relations` comprende `since` perché una relazione si può
+/// riprendere. Un verbo eseguito due volte con `--at` diverso produrrebbe due
+/// righe e una seconda che sembra una ripresa di ruolo che nessuno ha chiesto.
+/// Quindi il verbo prima chiede e poi scrive: se `teaches` è già aperta
+/// (`until IS NULL`), non scrive e lo dice (`"recorded": false,
+/// "already": true`). Un atto che è già avvenuto non viene ripetuto per far
+/// rumore, e la risposta dice quale dei due è successo invece di farlo
+/// indovinare da un `ok: true` identico nei due casi.
+///
+/// # Che cosa questo verbo non è
+///
+/// * **non è `iscrivi`**: l'iscrizione è un'altra relazione e un altro
+///   percorso; qui c'è il docente, che è la relazione senza la quale nessuna
+///   delle altre strade è utilizzabile.
+/// * **non è un ruolo**: `teaches` è una relazione in una tabella di relazioni,
+///   non una colonna su `people`. D5 resta quello che è.
+/// * **non chiude relazioni**: `Store::end_relation` esiste e questa CLI non lo
+///   espone. Un verbo che finisce un incarico è un'altra domanda, e rispondere
+///   a mezza fa più danno di non rispondere.
+fn insegna(args: &[String]) -> Result<serde_json::Value> {
+    let o = Opzioni::analizza(args)?;
+    let by = persona(&o, "person")?;
+    let mut store = apri(&o)?;
+    // Chi agisce viene registrato, come in `capture` e nella strada MCP: è
+    // l'operatore, e senza la riga in `people` la provenienza che questa
+    // funzione sta per scrivere non avrebbe a chi puntare. Il **docente** no,
+    // e la ragione è la stessa che in `persona_presente`: `upsert_person`
+    // sovrascrive `display_name`, e creare un collega col suo id come nome
+    // significa rinominare un collega vero.
+    registra_persona(&mut store, &by)?;
+    let corso = CourseId(o.richiesta("course")?.to_string());
+    let docente = persona_presente(
+        &store,
+        &PersonId(o.richiesta("docente")?.to_string()),
+        "docente",
+    )?;
+    // `sources.status` non è controllato, e la ragione è che nessuna regola di
+    // questo schema legge lo stato di un corso per decidere di una relazione:
+    // controllarlo qui significherebbe duplicare, in un punto solo, una regola
+    // che altrove non esiste. Un corso archiviato accetta l'incarico e non lo
+    // usa: è un fatto registrato, non un permesso revocato.
+    if store.source_status(&corso)?.is_none() {
+        return Err(Error::CorsoAssente { id: corso.0.clone() });
+    }
+    let since = at(&o);
+    let gia_insegna = store.relations_of(&docente, &corso)?.contains(&Relation::Teaches);
+    if !gia_insegna {
+        store.add_relation(
+            &CourseRelation {
+                person: docente.clone(),
+                course: corso.clone(),
+                relation: Relation::Teaches,
+                since,
+                until: None,
+            },
+            &by,
+        )?;
+    }
+    Ok(serde_json::json!({
+        "course": corso.0,
+        "relation": "teaches",
+        "docente": docente.0,
+        "registrato_da": by.0,
+        "since": since.0,
+        "recorded": !gia_insegna,
+        "already": gia_insegna,
+    }))
 }
 
 /// La strada `cli` della tabella `Route`, esposta perché un chiamante che
