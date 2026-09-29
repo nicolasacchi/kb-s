@@ -1006,6 +1006,32 @@ impl Store {
         Ok(())
     }
 
+    /// Il predicato del lato che **scrive** un esercizio.
+    ///
+    /// È [`Self::check_generator_reader`] con un nome che dice il verbo, e la
+    /// ragione per cui è un metodo e non una ripetizione è che la promessa è
+    /// una sola: **insegna il corso e vede l'argomento**. Il lato che scrive
+    /// un esercizio scrive anche il suo checker, e il checker *è* la risposta,
+    /// quindi il lato che lo scrive è per costruzione il lato che lo può
+    /// leggere. Una strada che scrivesse da parte di uno studente produrrebbe
+    /// righe che nessuno studente può rivedere e che il docente non ha
+    /// ispezionato: il peggiore dei due, e una riga che non saprebbe nessuno
+    /// di dover guardare.
+    ///
+    /// Il rifiuto è lo stesso di [`Self::exercise`] e lo stesso di
+    /// [`Self::instances_of`], quindi la risposta è la stessa **anche** quando
+    /// l'esercizio non esiste: chi chiede non impara nulla dal distinguere i
+    /// due casi, e `NotReadable` resta l'unico errore di visibilità di questo
+    /// crate.
+    pub fn may_author(
+        &self,
+        person: &PersonId,
+        course: &CourseId,
+        argument: &ArgumentId,
+    ) -> Result<()> {
+        self.check_generator_reader(person, course, argument)
+    }
+
     /// Salva un'istanza. Il `UNIQUE (exercise, seed)` è la costruzione che rende
     /// la copia inefficace: stessa famiglia, seed diverse, risposte diverse.
     ///

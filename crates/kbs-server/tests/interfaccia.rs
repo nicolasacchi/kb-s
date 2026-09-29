@@ -70,6 +70,13 @@ const T0: i64 = 1_700_000_000_000;
 /// Una scuola vera, montata sul router vero, con la `web/` vera.
 struct Scuola {
     app: axum::Router,
+    /// Il database, per le prove che devono registrare qualcosa **prima** di
+    /// chiedere. `Db` è un `Arc`, quindi tenere qui la copia non è una seconda
+    /// scuola: è la stessa.
+    db: Db,
+    /// La radice del corpus, dove stanno i file che le rotte degli artifact
+    /// servono e che `/api/v1/arguments/{id}` porta come testo.
+    corpus: PathBuf,
     /// Il secondo corso, per la prova che un docente del primo non vede niente
     /// del secondo. Serve anche a ricordare che `altro_corso` non è spazzatura.
     altro_corso: kbs_core::CourseId,
@@ -328,10 +335,12 @@ fn scuola() -> Scuola {
         web_dir: radice_web(),
         ..ServerConfig::new(&corpus)
     };
-    let app = kbs_server::router::app(db, config);
+    let app = kbs_server::router::app(db.clone(), config);
 
     Scuola {
         app,
+        db,
+        corpus: corpus.clone(),
         altro_corso,
         altro_docente,
         corso,
@@ -1405,4 +1414,189 @@ async fn un_argomento_che_non_vedi_e_uno_che_non_esistono_danno_la_stessa_rispos
         "le due risposte non sono gli stessi byte: l'interfaccia potrebbe distinguerle"
     );
     let _ = &scuola.altro_corso;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Il materiale: il testo che `/api/v1/arguments/{id}` porta accanto ai metadati
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Un file dentro il corpus di questa scuola, con la sua cartella.
+///
+/// Il corpus della scuola di prova è una directory con due cartelle vuote: gli
+/// argomenti hanno un `rel_path` che punta a file che **non esistono**, e va
+/// bene così finché nessuna rotta li legge. Da quando la rotta dell'argomento
+/// porta anche il testo, il file deve esserci davvero, e questo è il posto in
+/// cui la prova lo mette.
+fn scrivi(scuola: &Scuola, rel_path: &str, contenuto: &[u8]) {
+    let percorso = scuola.corpus.join(rel_path);
+    std::fs::create_dir_all(percorso.parent().expect("cartella")).expect("cartella");
+    std::fs::write(percorso, contenuto).expect("file");
+}
+
+/// Il `GET` dell'argomento, come lo fa `api.get`, e il suo corpo già parsato.
+/// Il nome non è `argomento`: quello è già la fabbrica di fixture di questo
+/// file, e due funzioni con lo stesso nome in un test sono una che non si
+/// trova quando il test fallisce.
+async fn leggi(scuola: &Scuola, id: &str, persona: &kbs_core::PersonId) -> serde_json::Value {
+    json(scuola.get(&format!("/api/v1/arguments/{id}"), persona).await).await
+}
+
+/// Lo stesso argomento con un altro `rel_path`: la rotta legge il file **da
+/// qui**, quindi i cinque modi in cui può non arrivare si provocano cambiando
+/// questa riga e non altro.
+fn con_rel_path(scuola: &Scuola, base: &Argument, rel_path: Option<&str>) {
+    let mut a = base.clone();
+    a.rel_path = rel_path.map(str::to_string);
+    scuola
+        .db
+        .write(|store| {
+            store.upsert_argument(&a)?;
+            Ok(())
+        })
+        .expect("registrazione");
+}
+
+#[tokio::test]
+async fn il_docente_legge_il_testo_del_file_del_proprio_argomento() {
+    // La promessa di questa rotta: aprire un argomento **mostra l'argomento**.
+    // Un lettore che apre una lezione e legge una tabella di hash ha aperto una
+    // tabella di hash, quindi il testo è il contenuto e i metadati sono la
+    // cornice.
+    let scuola = scuola();
+    const MATERIALE: &str =
+        "<!doctype html>\n<title>Lezione 01</title>\n<p>Il testo che c'è dentro.</p>\n";
+    let rel_path = scuola.pub_.rel_path.clone().expect("rel_path");
+    scrivi(&scuola, &rel_path, MATERIALE.as_bytes());
+
+    let corpo = leggi(&scuola, scuola.pub_.id.as_str(), &scuola.docente).await;
+    assert_eq!(corpo["testo"]["stato"], "presente", "{corpo}");
+    assert_eq!(
+        corpo["testo"]["contenuto"], MATERIALE,
+        "il testo arriva parola per parola: nessun HTML ripulito, nessuna estrazione"
+    );
+    assert_eq!(
+        corpo["testo"]["byte"].as_u64(),
+        Some(MATERIALE.len() as u64),
+        "i byte sono quelli del file, non quelli di un riassunto"
+    );
+    // I metadati ci sono ancora: il testo si aggiunge, non sostituisce.
+    assert_eq!(corpo["argument"]["title"], scuola.pub_.title);
+}
+
+#[tokio::test]
+async fn ogni_motivo_per_il_qual_il_testo_non_c_e_è_detto_per_intero() {
+    // Un campo che non c'è e un campo vuoto si somigliano, e chi legge
+    // direbbe «non c'è niente» dove la verità è «non posso mostrarlo». Quindi i
+    // cinque casi sono cinque motivi, e nessuno è un `404`: l'argomento è
+    // leggibile per tutto il resto della risposta, è il suo file che non c'è.
+    let scuola = scuola();
+    con_rel_path(&scuola, &scuola.bozza, None);
+    let corpo = leggi(&scuola, scuola.bozza.id.as_str(), &scuola.docente).await;
+    assert_eq!(corpo["testo"]["stato"], "assente", "{corpo}");
+    assert_eq!(corpo["testo"]["motivo"], "nessun-file", "{corpo}");
+
+    // «Fuori dal corpus» non si provoca con un `..` nel percorso: il vincolo di
+    // `arguments.rel_path` lo rifiuta in scrittura, quindi lo stato che
+    //Provocava il caso originale **non e' mai esistito**. Si provoca con un
+    // percorso valido che esce dalla radice per struttura di directory — e il
+    // percorso che segue e' la prova che il controllo e' sulla risoluzione e
+    // non sulla stringa.
+    con_rel_path(
+        &scuola,
+        &scuola.bozza,
+        Some("corsi/analisi-1/fuori/dal-corpus.html"),
+    );
+    let corpo = leggi(&scuola, scuola.bozza.id.as_str(), &scuola.docente).await;
+    assert_eq!(corpo["testo"]["motivo"], "fuori-corpus", "{corpo}");
+
+    // «Non leggibile» **non e' raggiungibile da qui**, e il test lo dichiara
+    // invece di fingere: per ottenerlo serve un file che esiste dentro la
+    // radice e che la lettura fallisce — cioè i permessi, che questo processo
+    // non ha. Un percorso che non risolve, o un percorso che risolve a una
+    // directory, danno `fuori-corpus`: il controllo e' sulla risoluzione e
+    // non sul tentativo di lettura. Il motivo resta nel vocabolario, che e'
+    // dove va detto un caso che qui non si puo' produrre.
+    con_rel_path(
+        &scuola,
+        &scuola.bozza,
+        Some("corsi/analisi-1/cartella/lezione.html"),
+    );
+    let corpo = leggi(&scuola, scuola.bozza.id.as_str(), &scuola.docente).await;
+    assert_eq!(corpo["testo"]["motivo"], "fuori-corpus", "{corpo}");
+
+
+    con_rel_path(&scuola, &scuola.bozza, Some("corsi/analisi-1/lezione-02.bin"));
+    scrivi(&scuola, "corsi/analisi-1/lezione-02.bin", &[0xff, 0xfe, 0x00]);
+    let corpo = leggi(&scuola, scuola.bozza.id.as_str(), &scuola.docente).await;
+    assert_eq!(corpo["testo"]["motivo"], "non-testo", "{corpo}");
+
+    let rel_path = "corsi/analisi-1/lezione-02.html";
+    con_rel_path(&scuola, &scuola.bozza, Some(rel_path));
+    scrivi(
+        &scuola,
+        rel_path,
+        &vec![b'a'; kbs_server::routes::arguments::MAX_TESTO + 1],
+    );
+    let corpo = leggi(&scuola, scuola.bozza.id.as_str(), &scuola.docente).await;
+    assert_eq!(corpo["testo"]["motivo"], "troppo-grande", "{corpo}");
+    assert_eq!(
+        corpo["testo"]["byte"].as_u64(),
+        Some((kbs_server::routes::arguments::MAX_TESTO + 1) as u64),
+        "un file troppo grande dice quanto è grande: «troppo grande» senza una misura \
+         è metà della verità"
+    );
+}
+
+#[tokio::test]
+async fn il_testo_non_apre_una_porta_secondaria() {
+    // La difesa di tutto questo è la stessa delle claim: il testo è appeso a un
+    // argomento che il predicato ha già dichiarato leggibile. Se il predicato
+    // dice no, la risposta è la stessa di un id mai esistito — e non contiene
+    // nemmeno una parola del materiale, che è il punto in cui una rotta che
+    // legge il file «per sicurezza anche quando non può» diventa un canale.
+    let scuola = scuola();
+    const SEGRETO: &str = "<p>questo testo non deve uscire per chi non può leggerlo</p>";
+    let rel_path = scuola.bozza.rel_path.clone().expect("rel_path");
+    scrivi(&scuola, &rel_path, SEGRETO.as_bytes());
+
+    let inesistente = scuola
+        .get("/api/v1/arguments/arg_0000000000000000", &scuola.studente)
+        .await;
+    let status_inesistente = inesistente.status();
+    let corpo_inesistente = testo(inesistente).await;
+
+    let per_lo_studente = scuola
+        .get(
+            &format!("/api/v1/arguments/{}", scuola.bozza.id.as_str()),
+            &scuola.studente,
+        )
+        .await;
+    assert_eq!(
+        per_lo_studente.status(),
+        status_inesistente,
+        "lo studente che non può leggere la bozza riceve una risposta diversa da «non esiste»"
+    );
+    let corpo_studente = testo(per_lo_studente).await;
+    assert_eq!(
+        corpo_studente, corpo_inesistente,
+        "«non lo vedi» e «non esiste» non sono gli stessi byte: l'interfaccia potrebbe distinguerle"
+    );
+    assert!(
+        !corpo_studente.contains("questo testo non deve uscire"),
+        "il corpo della risposta negata contiene il materiale: {corpo_studente}"
+    );
+
+    // E il docente dell'altro corso, che non c'entra: stesso canale, stessa
+    // risposta.
+    let per_l_altro = scuola
+        .get(
+            &format!("/api/v1/arguments/{}", scuola.bozza.id.as_str()),
+            &scuola.altro_docente,
+        )
+        .await;
+    assert_eq!(
+        testo(per_l_altro).await,
+        corpo_inesistente,
+        "un docente di un altro corso riceve una risposta diversa da «non esiste»"
+    );
 }

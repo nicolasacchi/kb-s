@@ -16,6 +16,65 @@ codice. Un progetto che non elenca i propri buchi li ripete dentro se stesso.
 
 ### Aggiunto
 
+- **`kbs ciclo`: il percorso completo è un verbo.** Il progetto aveva i
+  verbi (`verify`, `insegna`, `ratify`, `promote`, `autora`) ma non quello che
+  li mette in fila, e un docente non dovrebbe conoscere l'ordine. Il nuovo
+  verbo esegue `verify` → `insegna` → `ratify` → `promote` su un corpus, in
+  sola CLI, e **si ferma al primo passo che non riesce** dicendo quale e
+  perché. Ogni passo è la stessa funzione che il suo verbo chiama
+  (`scan::indexa`, `insegna_relazione`, `Gate::ratifica`, `Gate::promuovi`):
+  il verbo composto esegue i verbi, non li imita, e `insegna` è stata scomposta
+  in una funzione senza riga di comando perché la regola di idempotenza non
+  può stare in due posti.
+- **Un percorso interrotto porta con sé quello che è riuscito.** `esegui` ha
+  un nuovo esito, `NonFatto`, che è il referto **più** l'errore: prima
+  l'uno o l'altro, e un ciclo fermo al terzo passo rispondeva `{}`. Il nome
+  del passo va su stderr, il codice di uscita è quello della classe
+  dell'errore, e `ok` resta falso — perché `ok: true` su metà materiale
+  pubblicato è l'unica bugia che questo protocollo non si concede.
+- **Il ciclo è idempotente, e lo dichiara.** Rieseguito sullo stesso corpus
+  non duplica relazioni né righe, e la seconda esecuzione conta
+  `relazioni.gia`, `ratifiche.gia` e `promozioni.gia` invece di lasciare che
+  un `ok: true` identico faccia indovinare quale delle due forme sia successa.
+  La ratifica viene firmata solo se quella che c'è non vale più per l'hash
+  corrente, e un argomento già `in-corso` non viene toccato.
+- **Il ciclo dichiara il buco che ha.** Non produce le istanze degli
+  esercizi, e il referto lo dice con i numeri **misurati** sul corpus
+  (`esercizi.dichiarati`, `famiglie`, `fuori_catalogo`) e con una sezione
+  `NON FATTO` nel campo `testo`, che è la forma leggibile per un umano
+  dentro un protocollo la cui unica uscita è JSON. Il verbo che le scrive è
+  `autora`, e su una famiglia fuori dal catalogo chiuso di `kbs-exercise` non
+  scrive niente lo stesso: il ciclo non lo dichiara per inerzia, lo dichiara
+  perché il catalogo lo dice e il corpus lo mostra.
+- **Il lettore mostra l'argomento.** `GET /api/v1/arguments/{id}` portava
+  solo metadati — provenienza, ratifica, stato, prerequisiti — quindi un
+  argomento era irraggiungibile per qualunque via che non fosse il filesystem:
+  un docente che apriva una lezione leggeva una tabella di hash. La risposta
+  porta adesso anche `testo`, il **file d'ingresso** letto dal corpus con le
+  stesse tre regole che usa la rotta degli artifact (`sandbox::resolve_file`,
+  controllo dopo la risoluzione dei symlink, tetto dichiarato), e
+  `web/pagine/lettore.js` lo rende. Il testo viaggia **come dato** ed entra
+  nel DOM con un nodo di testo: nessuno script del materiale gira, e la
+  risposta non è un `404` nuovo — è la stessa risposta a cui il predicato ha
+  già detto sì, quindi non apre un canale. I cinque modi in cui il file può
+  non arrivare (`nessun-file`, `fuori-corpus`, `non-leggibile`,
+  `troppo-grande`, `non-testo`) sono un `enum` dichiarato, e la pagina li dice
+  per intero invece di mostrare un riquadro vuoto.
+
+  **Che cosa non è stato fatto, e perché.** Il rendering dell'artifact —
+  l'`iframe` verso il fallback `artifact::dispatch` sull'origine per-argomento
+  — resta fuori. Non è una scelta di gusto: l'`iframe` funziona solo se la
+  pagina conosce il `artifact_host_suffix` del deployment, e quel valore oggi
+  non esce da nessuna rotta; l'unica maniera di averlo sarebbe scriverlo in
+  `web/`, che è la seconda copia di un dato di installazione, e un `iframe`
+  con il suffisso sbagliato non è un `iframe` che non si vede — è una pagina
+  che dice «non c'è niente» dove il materiale c'è. E una rotta nuova che
+  servisse il file sotto l'origine principale metterebbe HTML non fidato
+  sull'origine dell'interfaccia, che è la cosa che `crate::sandbox` esiste per
+  impedire: senza `allow-same-origin` l'artifact perde `localStorage`, con
+  `allow-same-origin` perde l'isolamento. Qui dentro c'è il **file
+  d'ingresso**, non i suoi figli, e la pagina lo dice.
+
 - La **seconda strada di D4** nel banco di prova, esercitata contro il
   processo. Il controllo `pipeline.indicizzazione.solo_i_ratificati_sono_citabili`
   confrontava l'indice della pipeline con una tabella Rust che dichiarava una

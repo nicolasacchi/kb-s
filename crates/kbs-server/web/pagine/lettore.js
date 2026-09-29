@@ -1,5 +1,18 @@
-// Il lettore: un argomento, le sue claim con i loro span, e il modo di
-// verificarne una.
+// Il lettore: un argomento, **il suo testo**, le sue claim con i loro span, e
+// il modo di verificarne una.
+//
+// # Che cosa rende un lettore un lettore
+//
+// Un argomento che mostra solo provenienza, ratifica e stato non è un
+// argomento: sono metadati, e un docente che apre una lezione e legge una
+// tabella di hash ha aperto una tabella di hash. Quindi la rotta
+// `/api/v1/arguments/{id}` porta anche il **testo del file** e qui è renderizzato
+// — come **dato**, mai come documento: entra nel DOM con `el("pre", …)` e con
+// un nodo di testo dentro, perché il file è HTML non fidato (D14) e questa
+// pagina non è l'origine in cui può girare.
+//
+// E quando il testo non c'è, la pagina **lo dice e dice perché**: un riquadro
+// vuoto sarebbe una bugia. Vedi `motivoTesto`.
 //
 // # Che cosa rende verificabile una claim
 //
@@ -44,6 +57,7 @@ import { datiScena, disegna, riquadroScena, impronta } from "../lib/scena.js";
 export async function lettore({ nodo, id }) {
   riempi(nodo, el("p", { class: "caricamento" }, ["Carico l'argomento…"]));
   let argomento;
+  let materiale = null;
   let claim = [];
   try {
     const [letto, claims] = await Promise.all([
@@ -51,6 +65,7 @@ export async function lettore({ nodo, id }) {
       get("claim", { id }),
     ]);
     argomento = letto.argument;
+    materiale = letto.testo ?? null;
     claim = claims.claims ?? [];
   } catch (errore) {
     riempi(nodo, sezione("Argomento", riquadroErrore(errore)));
@@ -83,6 +98,7 @@ export async function lettore({ nodo, id }) {
   const dati = datiScena(argomento, claim, altrove);
   riempi(nodo, [
     sezione("Argomento", ...campiArgomento(argomento)),
+    sezione("Il materiale", ...sezioneMateriale(materiale)),
     sezione(
       "Che cosa afferma",
       testo(
@@ -154,6 +170,80 @@ function campiArgomento(argomento) {
       { colonne: [{ class: "col-chiave" }, {}] },
     ),
   ];
+}
+
+/**
+ * Il materiale: il testo del file, o la ragione per cui qui non c'è.
+ *
+ * Il testo arriva **come dato** — un campo di un JSON — e qui entra nel DOM
+ * come nodo di testo dentro un `pre`. Non è un `innerHTML` e non è un `iframe`:
+ * il file è HTML non fidato (D14) e questa pagina non è l'origine in cui
+ * quella cosa può girare.
+ *
+ * Quello che qui non c'è, e va detto invece di lasciare che si creda che ci
+ * sia: il **rendering**. Qui c'è il file d'ingresso parola per parola; ciò che
+ * sta sotto il suo percorso — fogli di stile, immagini, script, scena — è
+ * servito da un'altra porta di questo server, e questa pagina non la apre.
+ *
+ * @param {{stato: string, contenuto?: string, byte?: number, motivo?: string}|null} corpo
+ * @returns {Array<Node>}
+ */
+function sezioneMateriale(corpo) {
+  if (!corpo) {
+    // Il campo non è arrivato. Non è un caso che questa pagina debba
+    // contemplare: una risposta senza `testo` è una risposta di un server
+    // diverso, e dirlo è l'unica cosa che qui non è inventare.
+    return [
+      el("p", { class: "attenzione" }, [
+        "Questo server non ha mandato il testo del materiale. Quello che vedi sopra è tutto ciò che espone: nessun riquadro vuoto al suo posto, perché un riquadro vuoto sembrerebbe un argomento senza contenuto.",
+      ]),
+    ];
+  }
+  if (corpo.stato !== "presente") {
+    return [
+      el("p", { class: "attenzione" }, [
+        "Il materiale di questo argomento non è qui, e il motivo è detto per intero:",
+        el("div", { class: "motivo" }, [motivoTesto(corpo.motivo, corpo.byte)]),
+      ]),
+    ];
+  }
+  return [
+    el("p", { class: "nota" }, [
+      `Il file d'ingresso di questo argomento, parola per parola: ${corpo.byte} byte, nessun HTML ripulito e nessuna estrazione. È il sorgente del materiale, non il materiale reso.`,
+    ]),
+    el("pre", { class: "testo-artifact" }, [corpo.contenuto]),
+    el("p", { class: "nota" }, [
+      "Ciò che sta sotto il suo percorso — fogli di stile, immagini, script — non è in questa risposta: la rotta porta il file d'ingresso e nient'altro. Il rendering dell'artifact vive sull'origine per-argomento di questo server, e questa pagina non la costruisce: per farlo dovrebbe conoscere il suffisso degli host artifact del deployment, e quel valore non esce da nessuna rotta.",
+    ]),
+  ];
+}
+
+/**
+ * Perché il testo non c'è, detto come lo direbbe chi lo scrive.
+ *
+ * Nessuna di queste ragioni è un `404` e nessuna riguarda chi ha chiesto: se
+ * la pagina è qui, l'argomento era leggibile, e il suo file è suo.
+ *
+ * @param {string} motivo
+ * @param {number|undefined} byte
+ * @returns {string}
+ */
+function motivoTesto(motivo, byte) {
+  const peso = typeof byte === "number" ? ` Il file è di ${byte} byte.` : "";
+  switch (motivo) {
+    case "nessun-file":
+      return "L'argomento non ha un percorso di file: è nato via API, e un argomento senza file non ha un sorgente da leggere.";
+    case "fuori-corpus":
+      return "Il percorso che il registro dichiara per questo file non porta a un file dentro il corpus. Il percorso è stato rifiutato e non è stato indovinato: correggilo e il materiale torna qui.";
+    case "non-leggibile":
+      return "Il file c'è nel registro ma non si è potuto leggere dal disco. Non è una risposta sulla tua identità: il predicato ha già deciso che questo argomento è tuo, e il suo file è tuo.";
+    case "troppo-grande":
+      return `Il file supera il tetto di testo che questa rotta porta in un JSON, dichiarato in routes/arguments.rs come MAX_TESTO.${peso} Il file c'è: su quest'origine l'artifact si serve intero, e questa pagina non lo apre.`;
+    case "non-testo":
+      return `Il file non è UTF-8, e un artifact è HTML (D14) mentre l'HTML è UTF-8.${peso} Mostrarlo a metà sarebbe peggio che non mostrarlo.`;
+    default:
+      return `Motivo non dichiarato dal server: ${motivo}.${peso}`;
+  }
 }
 
 /** Lo stato, detto come lo dice il dominio. */

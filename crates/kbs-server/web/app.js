@@ -14,6 +14,7 @@ import { el, testo, riempi, sezione, riquadroErrore, nulla } from "./lib/dom.js"
 import { dichiara, persona } from "./lib/api.js";
 import { strisciaEventi } from "./lib/eventi.js";
 import { coda } from "./pagine/coda.js";
+import { argomentiDelCorso } from "./pagine/corso.js";
 import { lettore } from "./pagine/lettore.js";
 import { ricerca } from "./pagine/ricerca.js";
 import { registri } from "./pagine/registri.js";
@@ -108,6 +109,7 @@ function rottaCorrente() {
 
 const VISTE = {
   corsi: paginaCorsi,
+  argomenti: paginaArgomenti,
   argomento: (c) => lettore({ nodo: area, id: c.argomento }),
   cerca: (c) => ricerca({ nodo: area, q: c.query.get("q") ?? "" }),
   coda: paginaCoda,
@@ -157,9 +159,13 @@ function paginaCorsi() {
         "Questa è l'interfaccia del corpus di una scuola. Serve a tre cose: leggere un argomento e le sue affermazioni, decidere che cosa entra in uso, e guardare i registri di uno studente.",
       ]),
       el("p", { class: "nota" }, [
-        "Non c'è un elenco dei corsi: questo server non ha una rotta che dica «i corsi in cui sei», e i corsi sono relazioni, non un campo. Scrivi l'id del corso nella barra in alto.",
+        "Non c'è un elenco dei corsi: questo server non ha una rotta che dica «i corsi in cui sei», e i corsi sono relazioni, non un campo. Scrivi l'id del corso nella barra in alto, e da lì gli argomenti di quel corso si aprono.",
       ]),
       el("ul", { class: "indice" }, [
+        el("li", {}, [
+          el("a", { href: "#/argomenti" }, ["Gli argomenti di un corso"]),
+          " — che cosa c'è in un corso, con stato e provenienza, e il link per aprirlo. Serve il corso nella barra in alto.",
+        ]),
         el("li", {}, [
           el("a", { href: "#/cerca" }, ["Cerca"]),
           " — trova un argomento per una parola. La ricerca dà solo indirizzi: ogni risultato viene riaperto.",
@@ -189,6 +195,36 @@ function paginaCorsi() {
       ]),
     ),
   ]);
+}
+
+/**
+ * Gli argomenti del corso, con il corso preso dalla barra in alto e il filtro
+ * dallo stato dalla rotta.
+ *
+ * La guardia sul corso sta qui per la stessa ragione che sta in
+ * `paginaCoda` e in `paginaRegistri`: il corso è l'id che si scrive in alto, e
+ * una pagina che lo chiedesse al server con `undefined` riceverebbe il `404`
+ * che non distingue — il difetto sparirebbe dentro un'assenza legittima.
+ * `?state=` viene dalla rotta e non dalla barra: non è lo stato della pagina,
+ * è la domanda che la pagina sta facendo, e sta nella rotta per la stessa
+ * ragione per cui `?q=` sta nella rotta della ricerca.
+ */
+async function paginaArgomenti(corrente) {
+  if (!corso) {
+    riempi(
+      area,
+      sezione(
+        "Argomenti",
+        nulla("Scrivi l'id del corso nella barra in alto: gli argomenti sono di un corso, e questo server non ha un modo di dire quali corsi hai."),
+      ),
+    );
+    return;
+  }
+  await argomentiDelCorso({
+    nodo: area,
+    corso,
+    stato: corrente.query.get("state") ?? null,
+  });
 }
 
 /** La coda, con il corso preso dalla barra in alto. */

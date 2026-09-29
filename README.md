@@ -176,6 +176,52 @@ scuola.
 `Ctrl-C` chiude: le richieste già ricevute finiscono, il listener chiude subito,
 e il processo esce con `0`.
 
+### I due comandi di un docente che parte da zero
+
+Il percorso che una scuola percorre — indicizzare, dichiarare chi insegna,
+ratificare, promuovere — è **un comando**, e l'ordine è dentro il comando:
+
+```sh
+./kc build -p kbs-intake --bin kbs
+./target/debug/kbs ciclo crates/kbs-fixtures/corpus \
+    --db /tmp/kb-s.sqlite3 --person person_0001 --docente person_0001
+```
+
+`ciclo` esegue `verify` → `insegna` → `ratify` → `promote` e **si ferma al
+primo passo che non riesce**, dicendo quale e perché: il nome del passo è su
+stderr, e il referto di quello che è già riuscito resta su stdout, perché un
+docente che si ferma al terzo passo ha bisogno di sapere che i primi due sono
+a posto. `--person person_0001 --docente person_0001` è la forma che parte da
+un database vuoto: `--docente` non ha un default (un default scriverebbe
+`teaches` a qualcuno che non l'ha chiesto) e la persona che insegna deve essere
+nel registro delle persone — `--person` la registra, `--docente` no. Su
+`--person` e `--docente` diversi, il collega deve già essere nel roster.
+
+Il secondo comando è quello con cui si controlla che sia successo:
+
+```sh
+./target/debug/kbs read --db /tmp/kb-s.sqlite3 \
+    --person person_0001 --arg letture/prova.html
+```
+
+`ciclo` è **idempotente**: rieseguito sullo stesso corpus non duplica
+relazioni né righe, e la seconda esecuzione lo dichiara invece di lasciarlo
+dedurre da un `ok: true` identico (`relazioni.gia`, `ratifiche.gia`,
+`promozioni.gia`). Un file che la validazione boccia, o che la porta rifiuta,
+non ferma il ciclo — è già nel referto di `verify` — ma finisce in
+`non_promossi` con la sua ragione, e **il comando esce non zero**: metà
+materiale pubblicato non è un successo.
+
+**Il ciclo ha un buco, e lo dichiara: non produce le istanze degli esercizi.**
+Il campo `esercizi.istanze` del referto è sempre `0`, e accanto ci sono i
+numeri misurati sul corpus (`dichiarati`, `famiglie`, `fuori_catalogo`): su
+`corpus-ite/` gli esercizi dichiarano famiglie che non sono le cinque del
+catalogo chiuso di `kbs-exercise`, quindi nessuna istanza è calcolabile e
+nessun generatore le produrrebbe. Il verbo che le scrive è `kbs autora`, che
+su quelle famiglie non scrive niente e dice quale famiglia manca. Un percorso
+che dicesse «fatto» senza dirlo mentirebbe: il campo `testo` del referto ha
+una sezione `NON FATTO` per questo.
+
 ### Fuori dal checkout: `--web` e `--vendor`
 
 Il binario compilato porta con sé due percorsi assoluti: la cartella `web/`
@@ -319,6 +365,10 @@ il file: una correzione che cambia il test deve essere rumorosa, non silenziosa.
 | La ratifica entra nel sistema solo come atto del docente | `la_seconda_strada_di_d4::atto_2_la_promozione_e_l_atto_del_docente_e_la_porta_la_ragiona` | dimostrata |
 | Un argomento ratificato entra nell'indice condiviso, e non altri | `la_seconda_strada_di_d4::atto_3_dopo_la_promozione_e_citabile_esattamente_il_gruppo_promosso` | dimostrata |
 | Una ratifica superata rende l'argomento non citabile **nell'indice**, e nessun altro esce | `la_seconda_strada_di_d4::atto_4_il_contratto_riscritto_sotto_una_ratifica_viva_esce_dal_citabile` | dimostrata |
+| Indicizzare, dichiarare chi insegna, ratificare e promuovere sono **un comando**, e l'argomento firmato è citabile | `il_ciclo_completo::il_ciclo_indicizza_insegna_ratifica_e_promuove` | dimostrata |
+| Un percorso che non ha promosso tutto esce non zero e nomina il file che non è passato | `il_ciclo_completo::un_file_che_non_si_puo_promuovere_non_finisce_finito_e_il_referto_lo_dice` | dimostrata |
+| Il percorso completo non duplica relazioni né righe, e la seconda esecuzione lo dichiara | `il_ciclo_completo::due_esecuzioni_sullo_stesso_corpus_non_doppiano_nulla` | dimostrata |
+| Il ciclo completo non produce le istanze degli esercizi, e il referto lo dichiara | — | non dimostrata: nessun codice le produce, e `kbs autora` è l'unico percorso che le scrive |
 | La catena di hash copre le osservazioni e ha una consistency proof | — | non dimostrata: non c'è codice, e `D6` la dichiara come limite dichiarato |
 | Un accesso applica il predicato di visibilità | — | non dimostrata: il predicato esiste ed è testato, nessun accesso passa attraverso di esso |
 | La coorte raggiunge la soglia e aggrega | — | non dimostrata: la soglia è una costante e un predicato, non c'è aggregazione |

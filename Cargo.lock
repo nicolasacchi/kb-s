@@ -720,6 +720,7 @@ dependencies = [
  "hex",
  "kbs-core",
  "kbs-doc",
+ "kbs-exercise",
  "kbs-store",
  "kbs-verify",
  "rusqlite",

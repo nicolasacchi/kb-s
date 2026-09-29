@@ -15,8 +15,14 @@ export const ROTTE = {
   // L'unica rotta che non chiede relazioni: serve anche a un monitoraggio.
   salute: "/api/v1/health",
 
-  // Lettura del percorso **pubblicato**: ciò che la persona dichiarata vede.
+  // Il percorso di un corso: l'elenco di ciò che la persona dichiarata vede in
+  // un corso di cui ha una relazione, e non solo ciò che è pubblicato — al
+  // docente che insegna l'elenco comprende bozze e revisioni, ed è il
+  // predicato che decide, argomento per argomento. Una risposta `200` vuota è
+  // un elenco vuoto, non un corso vuoto; ed è per questo che questa rotta non
+  // può rispondere `404` a un corso in cui non c'è niente da mostrare.
   argomenti: "/api/v1/courses/{corso}/arguments",
+  // Il percorso **pubblicato**: ciò che la persona dichiarata vede.
   argomento: "/api/v1/arguments/{id}",
   claim: "/api/v1/arguments/{id}/claims",
 

@@ -59,7 +59,7 @@
 //! | metodo | percorso | successo | errori |
 //! |---|---|---|---|
 //! | `GET` | `/api/v1/courses/{course}/arguments` | `200` `{arguments:[…], course:…}` — elenco di ciò che la persona vede, **anche vuoto** | `404` se non ha relazioni col corso |
-//! | `GET` | `/api/v1/arguments/{id}` | `200` `{argument:{…}}` | `404` |
+//! | `GET` | `/api/v1/arguments/{id}` | `200` `{argument:{…}, testo:{stato:"presente"\|"assente", …}}` — il testo è il **file d'ingresso** letto dal corpus dopo il predicato | `404` |
 //! | `GET` | `/api/v1/arguments/{id}/claims` | `200` `{claims:[…]}` | `404` |
 //! | `GET` | `/api/v1/search?q=…&limit=…` | `200` `{hits:[…]}` | `400` ricerca vuota o `limit` fuori scala |
 //!

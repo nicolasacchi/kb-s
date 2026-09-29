@@ -16,13 +16,19 @@
 //! **con la ragione**, `claims` con la traccia di registro, `instances`.
 //!
 //! `instances` è **vuoto**, e va detto perché è una scelta e non una
-//! dimenticanza: gli esercizi sono la D8, sono `kbs-exercise`, e questo crate
-//! non li genera. Il banco di prova pretende da questa pipeline le istanze che
-//! ha nella **propria tabella Rust** (`kbs_fixtures::spec::ExerciseSpec`),
-//! e quelle non sono nel corpus: nessuna pipeline basata su file può produrle.
-//! Il replay deterministico è una proprietà di `kbs-exercise` e va verificato
-//! lì; metterlo in un banco che chiama un processo lo rende un controllo che
-//! non può mai passare, il che è peggio di un controllo assente.
+//! dimenticanza: questa funzione non genera esercizi, e non è il posto che li
+//! genera. Il banco di prova pretende da *questa* pipeline le istanze che ha
+//! nella **propria tabella Rust** (`kbs_fixtures::spec::ExerciseSpec`), e
+//! quelle non sono nel corpus. Il replay deterministico è una proprietà di
+//! `kbs-exercise` e va verificato lì; metterlo in un banco che chiama un
+//! processo che non genera nulla sta misurando la strada, non la proprietà.
+//!
+//! La strada che porta l'esercizio dal file al registro è
+//! [`crate::authoring`], e la ragione per cui è un modulo separato e non una
+//! riga qui è che **l'ordine conta**: `indexa` valida e mette in bozza, e
+//! `authoring` pretende che l'argomento ci sia già. Farli nello stesso passaggio
+//! scriverebbe l'esercizio su un argomento che il validatore può ancora
+//! rifiutare.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

@@ -524,3 +524,19 @@ ul.eventi li {
   font-size: 0.88rem;
   max-width: 60rem;
 }
+
+/* Il testo del materiale: sorgente, non resa. Va a capo perché un artifact è
+   HTML e le sue righe sono lunghe, e resta scrollabile in verticale perché un
+   file intero in una pagina è più alto di qualsiasi finestra. */
+pre.testo-artifact {
+  max-height: 32rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--bordo);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bordo) 12%, transparent);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}

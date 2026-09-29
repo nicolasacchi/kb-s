@@ -132,6 +132,12 @@ pub enum Error {
     #[error("il corso `{id}` non è registrato: la relazione è per-corso e il predicato parte dal corso, quindi una relazione su un corso inesistente non darebbe a nessuno nessun diritto — la scriverebbe e non la leggerebbe mai nessuno")]
     CorsoAssente { id: String },
 
+    #[error("{person} non può scrivere un esercizio su {course} per l'argomento {argument}: non insegna il corso, o non lo vede, e la stessa risposta copre i due casi perché distinguerli insegnerebbe che cosa c'è in un corso")]
+    NotAuthor { person: String, course: String, argument: String },
+
+    #[error("l'esercizio del semi `{seed}` non si costruisce neppure dopo che il generatore l'ha prodotto: {detail}")]
+    ExerciseUnbuildable { seed: String, detail: String },
+
 }
 
 impl Error {
@@ -177,6 +183,8 @@ impl Error {
             Error::PersonaAssente { .. } => "persona-assente",
             Error::CorsoMancante => "corso-mancante",
             Error::CorsoAssente { .. } => "corso-assente",
+            Error::NotAuthor { .. } => "not-author",
+            Error::ExerciseUnbuildable { .. } => "esercizio-non-costruibile",
         }
     }
 }

@@ -37,15 +37,16 @@
 //! no» e si corregge cambiando il materiale. Un solo codice per i due casi
 //! farebbe di ogni errore di sintassi un errore di merito.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use kbs_core::{ArgumentId, CohortId, CourseId, Millis, PersonId, Relation};
+use kbs_core::{ArgumentId, CohortId, CourseId, Millis, PersonId, PublicationState, Relation};
 use kbs_store::{CourseRelation, Person, Store};
 use serde::{Deserialize, Serialize};
 
+use crate::authoring;
 use crate::capture;
 use crate::corpus_hash::{self, CorpusHash};
 use crate::diagnosis::{self, Diagnosis};
@@ -154,6 +155,28 @@ VERBI:
                        nient'altro: senza quella riga restano chiusi l'esercizio,
                        lo scrutinio e l'export. --docente è la persona che
                        insegna, --person è chi ha registrato la riga.
+    autora            porta nel registro l'esercizio che un file dichiara:
+                       scrive `exercises` col checker e `instances` coll'atteso
+                       prodotto dal generatore, mai scritto dal chiamante.
+                       Solo in CLI, come `insegna`. --docente e chi scrive
+                       l'esercizio e deve insegnare il corso, --file e il
+                       file che lo dichiara, --arg e l'argomento su cui va
+                       registrato. Un esercizio di una famiglia che
+                       `kbs-exercise` non conosce non viene scritto, e il
+                       risultato dice quale famiglia manca e quali sono le
+                       cinque del catalogo.
+    ciclo              il percorso completo su un corpus, in una esecuzione:
+                       verify (indica) → insegna (la relazione `teaches`) →
+                       ratify → promote. Si ferma al primo passo che non
+                       riesce e dice quale e perché. La radice del corpus è
+                       l'argomento; --docente è la persona che insegna,
+                       --person l'operatore che firma le ratifiche.
+                       Idempotente: sullo stesso corpus una seconda esecuzione
+                       non duplica relazioni né righe, e lo dice (`recorded`,
+                       `already`, `gia`). NON produce le istanze degli
+                       esercizi e il referto lo dichiara: quel lavoro è il
+                       verbo `autora`, che su una famiglia fuori catalogo non
+                       scrive niente e dice quale famiglia manca.
     mcp                server MCP su stdio (D10.4)
     version            la versione di questo binario
 
@@ -198,15 +221,21 @@ pub fn esegui(
         return Uscita::Ok;
     }
 
-    let esito = dispatch(comando, resto, stdin, out);
-    let (uscita, mut valore, rifiuto) = match esito {
-        Ok(v) => (Uscita::Ok, v, None),
-        Err(e) => {
-            // Il motivo su stderr **anche** quando lo stdout e' silenzioso: un
-            // umano che ha lanciato il comando e non ha letto il JSON deve
-            // poter capire che cosa e' successo.
-            let _ = writeln!(err, "kbs: {e} [{}]", e.code());
-            (Uscita::da_errore(&e), serde_json::json!({}), Some(Errore::from(&e)))
+    let (uscita, mut valore, rifiuto) = match dispatch(comando, resto, stdin, out) {
+        Esito::Fatto(v) => (Uscita::Ok, v, None),
+        Esito::NonFatto { passo, rapporto, errore } => {
+            // Il motivo su stderr **anche** quando lo stdout non è silenzioso,
+            // e con il nome del passo davanti: chi legge solo stderr deve
+            // sapere *dove* il percorso si è fermato, non solo perché.
+            let _ = match passo {
+                Some(p) => writeln!(
+                    err,
+                    "kbs: il passo `{p}` non è riuscito: {errore} [{}]",
+                    errore.code()
+                ),
+                None => writeln!(err, "kbs: {errore} [{}]", errore.code()),
+            };
+            (Uscita::da_errore(&errore), rapporto, Some(Errore::from(&errore)))
         }
     };
 
@@ -233,35 +262,86 @@ fn dispatch(
     args: &[String],
     stdin: &mut dyn Read,
     out: &mut dyn std::io::Write,
-) -> Result<serde_json::Value> {
+) -> Esito {
     let mut inp = std::io::BufReader::new(&mut *stdin);
     match comando {
-        "capture" => cattura(args, &mut inp),
-        "verify" => verifica(args),
-        "lock" => lock(args),
-        "diagnose" => diagnostica(args),
-        "generate" => genera(args),
-        "generations" => generazioni(args),
-        "ratify" => ratifica(args),
-        "promote" => promuovi(args),
-        "read" => leggi(args),
-        "tenta" => tenta(args),
-        "mcp" => {
-            let o = Opzioni::analizza(args)?;
-            let by = o.una("person")?.map(|s| PersonId(s.to_string()));
-            let mut store = apri(&o)?;
-            if let Some(p) = &by {
-                registra_persona(&mut store, p)?;
-            }
-            crate::mcp::servi(&mut store, &mut inp, out)?;
-            Ok(serde_json::json!({ "servito": true }))
-        }
-        "insegna" => insegna(args),
-        altro => Err(Error::ComandoSconosciuto {
-            nome: altro.to_string(),
-            noti: "capture, verify, lock, diagnose, tenta, generate, generations, ratify, promote, read, insegna, mcp, version, help",
-        }),
+        "capture" => cattura(args, &mut inp).into(),
+        "verify" => verifica(args).into(),
+        "lock" => lock(args).into(),
+        "diagnose" => diagnostica(args).into(),
+        "generate" => genera(args).into(),
+        "generations" => generazioni(args).into(),
+        "ratify" => ratifica(args).into(),
+        "promote" => promuovi(args).into(),
+        "read" => leggi(args).into(),
+        "tenta" => tenta(args).into(),
+        "mcp" => servi_mcp(args, &mut inp, out).into(),
+        "insegna" => insegna(args).into(),
+        "autora" => autora(args).into(),
+        "ciclo" => ciclo(args),
+        altro => Esito::NonFatto {
+            passo: None,
+            rapporto: serde_json::json!({}),
+            errore: Error::ComandoSconosciuto {
+                nome: altro.to_string(),
+                noti: "capture, verify, lock, diagnose, tenta, generate, generations, ratify, promote, read, insegna, autora, ciclo, mcp, version, help",
+            },
+        },
     }
+}
+
+/// Il referto di un verbo e il modo in cui è finito.
+///
+/// `Fatto` è il caso normale, e per tutti i verbi è l'unico: sono loro a dire
+/// quando qualcosa non è riuscito, e lo dicono restituendo un errore.
+///
+/// `NonFatto` esiste per `ciclo`, che è l'unico verbo che può **fermarsi a
+/// metà** e che deve poterlo dichiarare. Il referto di quello che è riuscito
+/// viaggia con la ragione del fermo, perché un protocollo che a metà percorso
+/// risponde `{}` costringe il docente a rilanciare i verbi uno per uno per
+/// scoprire che cosa era già a posto — e quello che non si vede è quello che
+/// si rimane.
+enum Esito {
+    Fatto(serde_json::Value),
+    NonFatto {
+        /// Il passo in cui il percorso si è fermato, quando il verbo ne ha
+        /// uno. `None` per un errore che avviene prima di cominciare.
+        passo: Option<&'static str>,
+        rapporto: serde_json::Value,
+        errore: Error,
+    },
+}
+
+impl From<Result<serde_json::Value>> for Esito {
+    fn from(r: Result<serde_json::Value>) -> Self {
+        match r {
+            Ok(valore) => Esito::Fatto(valore),
+            Err(errore) => Esito::NonFatto {
+                passo: None,
+                rapporto: serde_json::json!({}),
+                errore,
+            },
+        }
+    }
+}
+
+/// `kbs mcp`, con la sua forma: il server serve e poi il protocollo chiude.
+///
+/// È una funzione perché `dispatch` non torna più `Result` e il `?` qui
+/// dentro avrebbe trasformato un errore del server in un ramo del protocollo.
+fn servi_mcp(
+    args: &[String],
+    inp: &mut dyn std::io::BufRead,
+    out: &mut dyn std::io::Write,
+) -> Result<serde_json::Value> {
+    let o = Opzioni::analizza(args)?;
+    let by = o.una("person")?.map(|s| PersonId(s.to_string()));
+    let mut store = apri(&o)?;
+    if let Some(p) = &by {
+        registra_persona(&mut store, p)?;
+    }
+    crate::mcp::servi(&mut store, inp, out)?;
+    Ok(serde_json::json!({ "servito": true }))
 }
 
 // ── gli argomenti ────────────────────────────────────────────────────────────
@@ -817,21 +897,34 @@ fn insegna(args: &[String]) -> Result<serde_json::Value> {
     // significa rinominare un collega vero.
     registra_persona(&mut store, &by)?;
     let corso = CourseId(o.richiesta("course")?.to_string());
-    let docente = persona_presente(
-        &store,
-        &PersonId(o.richiesta("docente")?.to_string()),
-        "docente",
-    )?;
+    let docente = persona(&o, "docente")?;
+    insegna_relazione(&mut store, &by, &docente, &corso, at(&o))
+}
+
+/// La relazione `teaches`, senza la riga di comando.
+///
+/// `kbs insegna` e `kbs ciclo` chiamano **questa** e non due implementazioni:
+/// il controllo di idempotenza — «`teaches` è già aperta, allora non si
+/// scrive» — è una regola, e una regola in due posti è una regola che un
+/// giorno i due posti smettono di concordare. Chi sceglie il passo è il
+/// chiamante; chi scrive la regola è questa funzione.
+fn insegna_relazione(
+    store: &mut Store,
+    by: &PersonId,
+    docente: &PersonId,
+    corso: &CourseId,
+    since: Millis,
+) -> Result<serde_json::Value> {
+    let docente = persona_presente(store, docente, "docente")?;
     // `sources.status` non è controllato, e la ragione è che nessuna regola di
     // questo schema legge lo stato di un corso per decidere di una relazione:
     // controllarlo qui significherebbe duplicare, in un punto solo, una regola
     // che altrove non esiste. Un corso archiviato accetta l'incarico e non lo
     // usa: è un fatto registrato, non un permesso revocato.
-    if store.source_status(&corso)?.is_none() {
+    if store.source_status(corso)?.is_none() {
         return Err(Error::CorsoAssente { id: corso.0.clone() });
     }
-    let since = at(&o);
-    let gia_insegna = store.relations_of(&docente, &corso)?.contains(&Relation::Teaches);
+    let gia_insegna = store.relations_of(&docente, corso)?.contains(&Relation::Teaches);
     if !gia_insegna {
         store.add_relation(
             &CourseRelation {
@@ -841,18 +934,613 @@ fn insegna(args: &[String]) -> Result<serde_json::Value> {
                 since,
                 until: None,
             },
-            &by,
+            by,
         )?;
     }
     Ok(serde_json::json!({
-        "course": corso.0,
+        "course": corso.0.clone(),
         "relation": "teaches",
         "docente": docente.0,
-        "registrato_da": by.0,
+        "registrato_da": by.0.clone(),
         "since": since.0,
         "recorded": !gia_insegna,
         "already": gia_insegna,
     }))
+}
+
+/// `kbs autora` — l'esercizio dal file al registro (D8).
+///
+/// # Il buco che chiude
+///
+/// `Store::upsert_exercise` e `Store::put_instance` esistevano, erano testati, e
+/// non avevano **nessun chiamante di produzione**: `exercises` e `instances`
+/// erano due tabelle che il sistema sapeva leggere e non sapeva riempire. Il
+/// progetto aveva costruito l'archivio con i suoi registri e non aveva
+/// costruito un corso. Qui c'è la strada, e la parte che conta non è che
+/// scriva: è **da dove viene `expected`**.
+///
+/// # Perché l'atteso non è un'opzione
+///
+/// Nessuna funzione di [`authoring`] prende un'atteso. L'esercizio e le sue
+/// istanze escono da `kbs_exercise::audit`, che chiama il generatore e
+/// controlla il checker che ne è uscito; il valore che finisce in
+/// `instances.expected` è quello che il programma ha prodotto per quel seed.
+/// Un percorso che accettasse `expected` dal chiamante sarebbe un percorso in
+/// cui la risposta la scrive il chiamante, e D8 — «l'integrità è per
+/// costruzione perché **la risposta non è nel materiale che lo studente vede**»
+/// — cadrebbe.
+///
+/// Ed è per questo che il file non viene interrogato: `data-atteso` esiste nei
+/// file di `corpus-ite/` e questa strada non lo legge. Se lo leggesse, il
+/// percorso avrebbe la risposta a portata di mano e la premessa del progetto
+/// sarebbe un'occasione, non una costruzione.
+///
+/// # Perché solo in CLI locale, e la parte non è negoziabile
+///
+/// Su HTTP e su MCP l'identità è **dichiarata, non autenticata**
+/// (`kbs_server::identity`: «il confine di sicurezza è il deployment»). Un
+/// verbo che scrive `exercises` e `instances` su quel trasporto significa
+/// *dichiarati docente di un corso e leggete le risposte di ogni esercizio*, e
+/// l'unico controllo che il sistema dichiara di avere è il predicato di
+/// visibilità — che la dichiarazione appena concessa soddisfa da sola. Come
+/// `kbs insegna`, quindi: solo in CLI, e `la_strada_mcp` lo prova per nome.
+///
+/// # Chi scrive, e cosa dice il risultato
+///
+/// `--docente` è **chi scrive l'esercizio** e va in `exercises.created_by`:
+/// `--person` è l'operatore, che registra l'atto, e non diventa l'autore. Le
+/// due cose sono diverse perché `kbs insegna` le ha distinte e un atto che
+/// registrarebbe la propria autorialità sarebbe un atto che nessuno potrebbe
+/// contestare.
+///
+/// Il predicato è `Store::may_author`: **insegna il corso e vede
+/// l'argomento**, cioè lo stesso di `Store::exercise`. Il lato che scrive il
+/// checker è per costruzione il lato che lo può leggere, quindi la porta è una
+/// sola e non due.
+///
+/// Il risultato è un esito per esercizio dichiarato, e i numeri
+/// `declared`/`written`/`not_computed` ci sono anche quando sono zero: un
+/// referto che omette «nessuna istanza calcolata» dice «non lo so», che è una
+/// riga diversa da «non ce n'è».
+fn autora(args: &[String]) -> Result<serde_json::Value> {
+    let o = Opzioni::analizza(args)?;
+    let by = persona(&o, "person")?;
+    let file = o.richiesta("file")?;
+    let mut store = apri(&o)?;
+    registra_persona(&mut store, &by)?;
+    // Il docente che scrive deve già esistere: `upsert_person` sovrascrive
+    // `display_name`, e creare un collega col suo id come nome significa
+    // rinominare un collega vero. La stessa ragione di `insegna`.
+    let docente = persona_presente(&store, &persona(&o, "docente")?, "docente")?;
+    let corso = CourseId(o.richiesta("course")?.to_string());
+    if store.source_status(&corso)?.is_none() {
+        return Err(Error::CorsoAssente { id: corso.0.clone() });
+    }
+    let argomento = ArgumentId::from_rel_path(o.richiesta("arg")?);
+    let sorgente = std::fs::read_to_string(file)
+        .map_err(|source| Error::Io { path: PathBuf::from(file), source })?;
+    let atto = authoring::Act {
+        source: sorgente,
+        course: corso.clone(),
+        argument: argomento.clone(),
+        author: docente.clone(),
+        at: at(&o),
+    };
+    let referto = authoring::registra(&mut store, &atto)?;
+    Ok(serde_json::json!({
+        "file": file,
+        "course": corso.0,
+        "argument": argomento.0,
+        "docente": docente.0,
+        "registrato_da": by.0,
+        "catalog": authoring::catalog(),
+        "declared": referto.declared,
+        "written": referto.written,
+        "not_computed": referto.not_computed,
+        "outcomes": referto.outcomes,
+    }))
+}
+
+/// `kbs ciclo` — il percorso completo, in una esecuzione.
+///
+/// # Che cosa fa, e in che ordine
+///
+/// `verify` → `insegna` → `ratify` → `promote`, che è l'ordine in cui un
+/// docente li eseguirebbe a mano e che nessun `--help` spiegava. Ogni passo è
+/// la **stessa funzione** che il suo verbo chiama: [`scan::indexa`],
+/// [`insegna_relazione`], [`Gate::ratifica`], [`Gate::promuovi`]. Nessuna
+/// scorciatoia e nessuna seconda copia della regola: il verbo composto
+/// esegue i verbi, non li imita.
+///
+/// L'ordine non è decorativo, e la parte che lo rende obbligato è `insegna`
+/// prima di `ratify`: `Gate::ratifica_e_promuovi` e `Gate::promuovi` leggono
+/// l'argomento **attraverso il predicato di D5**, e un docente che non ha
+/// ancora la relazione non lo vede. Su un corpus indicizzato da un operatore e
+/// insegnato da un altro, la relazione è la premessa della firma, non un
+/// di più.
+///
+/// # Perché si ferma al primo passo che non riesce
+///
+/// Un percorso che continua dopo un errore mente su quello che è riuscito: il
+/// docente vede un referto pieno di numeri e non sa quali corrispondono a un
+/// atto avvenuto. Quindi qui la parola **passo** è un passo del percorso e non
+/// un file: un file che la validazione boccia non ferma il ciclo — è già nel
+/// referto di `verify`, e diventa una riga di `non_promossi` con la sua
+/// ragione — mentre un passo che non può essere eseguito (il database non si
+/// apre, il docente non è nel roster, la porta rifiuta il testo) ferma tutto e
+/// dice quale era.
+///
+/// # L'uscita non è mai «tutto bene» se qualcosa manca
+///
+/// Se un solo file non è arrivato a `in-corso`, il comando esce con il codice
+/// della regola e il referto porta la lista. `ok: true` su un corpus
+/// metà pubblicato sarebbe l'unica bugia che questo protocollo non si
+/// concede, perché `ok` vuol dire «quello che si chiedeva è stato fatto e
+/// l'ho verificato» e metà fatto non è fatto.
+///
+/// # Idempotente, e come lo si vede
+///
+/// I quattro passi lo sono per costruzione, non per una guardia messa
+/// all'ingresso: `scan::indexa` registra un corso solo se non c'è e conserva
+/// la ratifica che c'era ([`route`] dichiara perché), le claim si
+/// riconciliano per id e testo, [`insegna_relazione`] non riscrive una
+/// `teaches` già aperta, e qui la ratifica viene firmata **solo** se quella
+/// che c'è non vale più per l'hash corrente. Il referto conta le due forme
+/// (`ratifiche.nuove` e `ratifiche.gia`, `relazioni.nuove` e
+/// `relazioni.gia`) perché un `ok: true` identico nelle due esecuzioni
+/// costringerebbe a indovinare quale delle due è successa.
+///
+/// # Che cosa non fa, e perché il referto lo dice
+///
+/// **Non produce le istanze degli esercizi.** Quello è il verbo
+/// [`autora`], che chiama il generatore e ne scrive l'atteso; qui non viene
+/// chiamato, e su un corpus come `corpus-ite/` non chiamerebbe nulla lo
+/// stesso: le famiglie che quei file dichiarano non sono le cinque del
+/// catalogo chiuso di `kbs-exercise`, e `authoring` per quelle non scrive e
+/// dice quale famiglia manca. Il numero di esercizi dichiarati e le famiglie
+/// fuori catalogo sono **misurati** sul corpus, non dichiarati: un referto che
+/// dice «istanze non prodotte» senza dire quante ne erano dichiarate è metà
+/// di un silenzio.
+///
+/// # Perché solo in CLI locale
+///
+/// Come [`insegna`] e [`autora`], e per la stessa ragione: scrive la relazione
+/// che apre D5, e su HTTP o su MCP l'identità è dichiarata. Un percorso che
+/// dichiara l'insegnante e pubblica tutto quello che c'è è la definizione
+/// letterale di `teaches` in `kbs_core::may_read`.
+fn ciclo(args: &[String]) -> Esito {
+    let o = match Opzioni::analizza(args) {
+        Ok(o) => o,
+        Err(errore) => return Esito::NonFatto { passo: None, rapporto: serde_json::json!({}), errore },
+    };
+    let radice = match o.posizionali.first().map(PathBuf::from) {
+        Some(r) => r,
+        None => {
+            return Esito::NonFatto {
+                passo: None,
+                rapporto: serde_json::json!({}),
+                errore: Error::Uso("manca la radice del corpus".into()),
+            }
+        }
+    };
+    let by = match persona(&o, "person") {
+        Ok(p) => p,
+        Err(errore) => return Esito::NonFatto { passo: None, rapporto: serde_json::json!({}), errore },
+    };
+    // Il docente non ha un default, e non può averlo: `--docente` che
+    // manca significa «-nessun insegnante», che è una relazione inesistente
+    // e non un default. `--person` che manca significherebbe `recorded_by` a
+    // vuoto, che è il buco che `V8` chiude.
+    let docente = match persona(&o, "docente") {
+        Ok(p) => p,
+        Err(errore) => return Esito::NonFatto { passo: None, rapporto: serde_json::json!({}), errore },
+    };
+    let nota = o.una("note").ok().flatten().unwrap_or("ciclo della CLI").to_string();
+    let since = at(&o);
+
+    let mut r = RefertoCiclo::nuovo(&radice, &by, &docente);
+    let mut store = match apri(&o) {
+        Ok(s) => s,
+        Err(errore) => return r.fermo("verify", errore),
+    };
+    if let Err(errore) = registra_persona(&mut store, &by) {
+        return r.fermo("verify", errore);
+    }
+
+    // ── passo 1: verify ─────────────────────────────────────────────────────
+    let scansione = match scan::indexa(&mut store, &radice, &by) {
+        Ok(s) => s,
+        Err(errore) => return r.fermo("verify", errore),
+    };
+    r.corpus_hash = scansione.corpus_hash.as_str().to_string();
+    r.file = scansione.report.items.len();
+    r.entrati = scansione.receipts.iter().filter(|x| x.stored).count();
+    r.verifica = serde_json::to_value(&scansione.report)
+        .unwrap_or(serde_json::Value::Null);
+
+    // I sorgenti si leggono **una volta** e si tengono: le dichiarazioni degli
+    // esercizi e il verdetto alla porta devono descrivere gli stessi byte, e
+    // due letture in due momenti diversi potrebbero non farlo. Il corpus di un
+    // corso è una cartella di documenti, non un archivio: tenerlo in memoria
+    // per la durata di un processo che dura un secondo è il prezzo di quella
+    // garanzia.
+    let mut sorgenti: BTreeMap<String, String> = BTreeMap::new();
+    match scan::html_files(&radice) {
+        Ok(files) => {
+            for (rel, path) in files {
+                match std::fs::read_to_string(&path) {
+                    Ok(sorgente) => {
+                        sorgenti.insert(rel, sorgente);
+                    }
+                    Err(source) => return r.fermo("verify", Error::Io { path, source }),
+                }
+            }
+        }
+        Err(errore) => return r.fermo("verify", errore),
+    }
+    if let Err(errore) = r.conta_esercizi(&sorgenti) {
+        return r.fermo("verify", errore);
+    }
+
+    // ── passo 2: insegna ────────────────────────────────────────────────────
+    // Il corso non è un'opzione: è quello che il corpus dichiara. Una cartella
+    // che ne dichiara due viene insegnata per entrambi, perché il docente che
+    // ha indicizzato le due ha appena detto di volerle insegnare, e chiedere
+    // `--course` obbligatorio aggiungerebbe una risposta che il corpus ha già
+    // dato — con il rischio di un `--course` scritto a mano che nomina un
+    // corso che nel corpus non c'è, e di un ciclo che si ferma su
+    // `corso-assente` per una domanda che non era quella.
+    let mut corsi: BTreeSet<CourseId> = BTreeSet::new();
+    for ricevuta in &scansione.receipts {
+        // Solo dagli argomenti **entrati**: un file rifiutato porta il corso
+        // segnaposto che `scan::rifiuto` gli mette, e insegnare un corso che
+        // nessun file dichiara produrrebbe una relazione che non apre niente.
+        if ricevuta.stored {
+            corsi.insert(ricevuta.argument.course.clone());
+        }
+    }
+    for corso in &corsi {
+        match insegna_relazione(&mut store, &by, &docente, corso, since) {
+            Ok(relazione) => {
+                r.relazioni += 1;
+                if relazione["recorded"].as_bool() == Some(true) {
+                    r.relazioni_nuove += 1;
+                } else {
+                    r.relazioni_gia += 1;
+                }
+            }
+            Err(errore) => return r.fermo("insegna", errore),
+        }
+    }
+    r.corsi = corsi.iter().map(|c| c.0.clone()).collect();
+
+    // ── passo 3: ratify ─────────────────────────────────────────────────────
+    let mut da_promuovere: Vec<(ArgumentId, String)> = Vec::new();
+    for ricevuta in &scansione.receipts {
+        let rel = ricevuta.argument.rel_path.clone().unwrap_or_default();
+        if !ricevuta.stored {
+            r.non_promossi.push(non_promosso(&rel, &ricevuta.verdict, "il file non è entrato in register"));
+            continue;
+        }
+        // Un verdetto bloccante non è un passo fallito: è la risposta della
+        // validazione, già riportata da `verify` file per file. Fermarsi
+        // qui significherebbe che un unico file rotto impedisce a tutti gli
+        // altri trenta di diventare materiale — e il docente che aspetta il
+        // resto avrebbe la risposta «non è riuscito» senza sapere che i
+        // trenta ci sono già.
+        if let Some(bloccante) = ricevuta.verdict.first_blocking() {
+            r.non_promossi.push(NonPromosso {
+                rel_path: rel,
+                codice: bloccante.code.clone(),
+                motivo: bloccante.message.clone(),
+            });
+            continue;
+        }
+        // `archiviato` non torna indietro: D4 non ha l'inverso di `archive`, e
+        // `Store::publish` lo rifiuta. È un atto deliberato del docente, quindi
+        // non è un guasto — ma è materiale che questo percorso non ha
+        // pubblicato, e va detto come tutto il resto.
+        if ricevuta.argument.state == PublicationState::Archiviato {
+            r.non_promossi.push(NonPromosso {
+                rel_path: rel,
+                codice: "archiviato".into(),
+                motivo: "l'argomento è archiviato e questa CLI non ha la strada che lo riapre: `Store::end_relation` e l'inverso di `archive` non sono esposti".into(),
+            });
+            continue;
+        }
+        let id = ricevuta.argument.id.clone();
+        let fresco = ratifica_fresca(&ricevuta.argument);
+        if ricevuta.argument.state == PublicationState::InCorso && fresco {
+            // Era gia' ratificata **e** gia' in corso: il percorso non rifirma
+            // e non ripromuove, ma le due cose ci sono e vanno dette. Il
+            // `continue` le nascondeva: la seconda esecuzione riportava zero
+            // ratifiche nuove e zero gia' fatte, che e' indistinguibile da
+            // «non c'era niente» — l'ambiguita' che questo protocollo dichiara
+            // di non avere.
+            r.gia_ratificate += 1;
+            r.gia_in_corso += 1;
+            continue;
+        }
+        // La ratifica si rifirma **solo** se quella che c'è non vale più per
+        // l'hash corrente: è il caso di un file cambiato dopo la firma, che è
+        // esattamente l'atto che `Store::ratify` documenta. Rifirmare gli
+        // stessi byte lascerebbe la seconda esecuzione diversa dalla prima
+        // per un `ratified_at` che nessuno ha guardato.
+        if !fresco {
+            if let Err(errore) = Gate::ratifica(&mut store, &id, &docente, &nota) {
+                return r.fermo("ratify", errore);
+            }
+            r.ratificate += 1;
+        } else {
+            r.gia_ratificate += 1;
+        }
+        da_promuovere.push((id, rel));
+    }
+
+    // ── passo 4: promote ────────────────────────────────────────────────────
+    for (id, rel) in &da_promuovere {
+        // Il verdetto si ricalcola dal file, come in `kbs promote --path`: il
+        // testo è la fonte, e la porta deve giudicare i byte che sta per
+        // firmare, non un verdetto ricordato.
+        let sorgente = match sorgenti.get(rel) {
+            Some(s) => s,
+            None => {
+                return r.fermo(
+                    "promote",
+                    Error::Io {
+                        path: radice.join(rel),
+                        source: std::io::Error::other(
+                            "il file che la scansione ha indicizzato non è più fra quelli della radice",
+                        ),
+                    },
+                )
+            }
+        };
+        let verdetto = gate::rivedi(sorgente);
+        match Gate::promuovi(&mut store, id, &docente, &verdetto) {
+            Ok(_) => r.promosse += 1,
+            Err(errore) => {
+                // Il file che la porta chiude entra nel referto **prima** di
+                // fermare il ciclo: un fermo che non nomina il file che non è
+                // passato costringe il docente a ricalcolare a mano quale dei
+                // trenta fosse, e la domanda giusta è sempre «quale».
+                r.non_promossi.push(NonPromosso {
+                    rel_path: rel.clone(),
+                    codice: errore.code().to_string(),
+                    motivo: errore.to_string(),
+                });
+                return r.fermo("promote", errore);
+            }
+        }
+    }
+
+    if r.non_promossi.is_empty() {
+        return Esito::Fatto(r.json());
+    }
+    // Tutto il percorso è stato provato e qualcosa non è arrivato in porto.
+    // L'errore è quello del **primo** file mancante, con la sua ragione: un
+    // `Errore` qui non è un'uscita di servizio, è la dichiarazione che `ok` è
+    // falso, e la ragione più utile da mostrare è quella del file da aprire per
+    // prima.
+    let primo = &r.non_promossi[0];
+    r.fermo(
+        "promote",
+        Error::VerdettoBloccante {
+            codice: primo.codice.clone(),
+            messaggio: format!(
+                "il ciclo ha promosso {} file su {}; il primo che non è passato è `{}`: {}",
+                r.promosse + r.gia_in_corso,
+                r.file,
+                primo.rel_path,
+                primo.motivo
+            ),
+        },
+    )
+}
+
+/// La ratifica che c'è vale ancora per i byte che ci sono adesso?
+///
+/// È la domanda che `kbs_core::check_citable` si pone e che qui viene
+/// riformulata per decidere **se firmare**, non per decidere se è citabile:
+/// le due risposte coincidono oggi, e se un giorno smettono il ciclo
+/// rifirmerà un testo che nessuno più può citare — che è innocuo — invece di
+/// saltare la firma su un testo citabile, che non lo è.
+fn ratifica_fresca(argomento: &kbs_core::Argument) -> bool {
+    argomento
+        .ratified
+        .as_ref()
+        .is_some_and(|ratifica| ratifica.contract_hash == argomento.content_hash)
+}
+
+/// Un file che il percorso non ha promosso, e perché.
+#[derive(Debug, Clone, Serialize)]
+struct NonPromosso {
+    rel_path: String,
+    codice: String,
+    motivo: String,
+}
+
+/// Un file che non è entrato: il verdetto ne sa qualcosa, e se non dice niente
+/// si dice almeno che non è entrato.
+fn non_promosso(rel: &str, verdetto: &Verdict, perche: &str) -> NonPromosso {
+    match verdetto.first_blocking() {
+        Some(bloccante) => NonPromosso {
+            rel_path: rel.to_string(),
+            codice: bloccante.code.clone(),
+            motivo: bloccante.message.clone(),
+        },
+        None => NonPromosso {
+            rel_path: rel.to_string(),
+            codice: "non-entrato".into(),
+            motivo: perche.to_string(),
+        },
+    }
+}
+
+/// Il referto di `ciclo`, costruito passo passo.
+///
+/// I campi sono dichiarati anche quando sono vuoti: è la stessa ragione per
+/// cui [`scan::Report`] dichiara `instances` invece di ometterlo. Un referto
+/// che non ha un campo non dice «zero», dice «non lo so».
+struct RefertoCiclo {
+    radice: String,
+    docente: String,
+    operatore: String,
+    corsi: Vec<String>,
+    corpus_hash: String,
+    file: usize,
+    entrati: usize,
+    relazioni: usize,
+    relazioni_nuove: usize,
+    relazioni_gia: usize,
+    ratificate: usize,
+    gia_ratificate: usize,
+    promosse: usize,
+    gia_in_corso: usize,
+    non_promossi: Vec<NonPromosso>,
+    esercizi_dichiarati: usize,
+    famiglie: Vec<String>,
+    famiglie_fuori_catalogo: Vec<String>,
+    catalogo: Vec<String>,
+    verifica: serde_json::Value,
+}
+
+impl RefertoCiclo {
+    fn nuovo(radice: &PathBuf, by: &PersonId, docente: &PersonId) -> Self {
+        RefertoCiclo {
+            radice: radice.display().to_string(),
+            docente: docente.0.clone(),
+            operatore: by.0.clone(),
+            corsi: Vec::new(),
+            corpus_hash: String::new(),
+            file: 0,
+            entrati: 0,
+            relazioni: 0,
+            relazioni_nuove: 0,
+            relazioni_gia: 0,
+            ratificate: 0,
+            gia_ratificate: 0,
+            promosse: 0,
+            gia_in_corso: 0,
+            non_promossi: Vec::new(),
+            esercizi_dichiarati: 0,
+            famiglie: Vec::new(),
+            famiglie_fuori_catalogo: Vec::new(),
+            catalogo: authoring::catalog(),
+            verifica: serde_json::Value::Null,
+        }
+    }
+
+    /// Il percorso si è fermato al passo `passo`: il referto di quello che è
+    /// riuscito viaggia con la ragione, perché il docente che ha fermato il
+    /// ciclo al terzo passo ha bisogno di sapere che i primi due sono a posto.
+    fn fermo(&self, passo: &'static str, errore: Error) -> Esito {
+        Esito::NonFatto { passo: Some(passo), rapporto: self.json(), errore }
+    }
+
+    /// Conta gli esercizi che il corpus dichiara e le famiglie che il
+    /// catalogo di `kbs-exercise` non conosce.
+    ///
+    /// La lettura è quella di [`authoring::dichiara`], non una seconda: un
+    /// parser degli esercizi in due posti è un parser che un giorno conta una
+    /// cosa diversa dall'altro, e il numero che finisce nel referto è proprio
+    /// quello che il docente usa per capire che cosa manca.
+    fn conta_esercizi(&mut self, sorgenti: &BTreeMap<String, String>) -> Result<()> {
+        for sorgente in sorgenti.values() {
+            for dichiarato in authoring::dichiara(sorgente)? {
+                self.esercizi_dichiarati += 1;
+                if !self.famiglie.contains(&dichiarato.family) {
+                    self.famiglie.push(dichiarato.family.clone());
+                }
+                if !self.catalogo.contains(&dichiarato.family)
+                    && !self.famiglie_fuori_catalogo.contains(&dichiarato.family)
+                {
+                    self.famiglie_fuori_catalogo.push(dichiarato.family.clone());
+                }
+            }
+        }
+        self.famiglie.sort();
+        self.famiglie_fuori_catalogo.sort();
+        Ok(())
+    }
+
+    /// Il referto, in JSON.
+    fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "corso": self.corsi,
+            "docente": self.docente,
+            "operatore": self.operatore,
+            "radice": self.radice,
+            "corpus_hash": self.corpus_hash,
+            "file": self.file,
+            "file_entrati": self.entrati,
+            "relazioni": {
+                "totali": self.relazioni,
+                "nuove": self.relazioni_nuove,
+                "gia": self.relazioni_gia,
+            },
+            "ratifiche": { "nuove": self.ratificate, "gia": self.gia_ratificate },
+            "promozioni": { "nuove": self.promosse, "gia": self.gia_in_corso },
+            "non_promossi": self.non_promossi,
+            "esercizi": {
+                "dichiarati": self.esercizi_dichiarati,
+                "famiglie": self.famiglie,
+                "fuori_catalogo": self.famiglie_fuori_catalogo,
+                "catalogo": self.catalogo,
+                // Sempre zero, e **non** un conteggio: questo percorso non
+                // chiama il generatore. `kbs autora` è il verbo che lo fa, e
+                // su una famiglia fuori catalogo non scrive niente lo stesso.
+                "istanze": 0,
+            },
+            "verifica": self.verifica,
+            "testo": self.testo(),
+        })
+    }
+
+    /// Il referto in parole, per chi ha lanciato il comando e non ha letto
+    /// il JSON.
+    ///
+    /// Un campo `testo` e non un secondo canale: il protocollo dichiara una
+    /// sola forma di uscita, e la forma è JSON. La frase ci sta dentro, e ci
+    /// sta perché un docente non è un agente.
+    fn testo(&self) -> String {
+        let mut t = String::new();
+        t.push_str(&format!(
+            "ciclo {}\n  corpus      {}\n  hash        {}\n  file        {} ricevuti, {} entrati\n  corsi       {}\n  relazioni   {} nuove, {} già aperte\n  ratifiche   {} nuove, {} già valide\n  promozioni  {} nuove, {} già in corso",
+            versione(),
+            self.radice,
+            self.corpus_hash,
+            self.file,
+            self.entrati,
+            if self.corsi.is_empty() { "nessuno".to_string() } else { self.corsi.join(", ") },
+            self.relazioni_nuove,
+            self.relazioni_gia,
+            self.ratificate,
+            self.gia_ratificate,
+            self.promosse,
+            self.gia_in_corso,
+        ));
+        if !self.non_promossi.is_empty() {
+            t.push_str(&format!("\nNON PROMOSSI ({}):", self.non_promossi.len()));
+            for r in &self.non_promossi {
+                t.push_str(&format!("\n  - {} [{}]: {}", r.rel_path, r.codice, r.motivo));
+            }
+        }
+        t.push_str(&format!(
+            "\nNON FATTO:\n  - le istanze degli esercizi: {} esercizi dichiarati nel corpus, {} istanze prodotte. Le \
+famiglie sono un catalogo chiuso e questo percorso non chiama il generatore: il verbo che le \
+scrive è `kbs autora`, e su una famiglia che il catalogo non conosce non scrive niente e dice \
+quale famiglia manca{}.",
+            self.esercizi_dichiarati,
+            0,
+            if self.famiglie_fuori_catalogo.is_empty() {
+                String::new()
+            } else {
+                format!("; qui fuori catalogo: {}", self.famiglie_fuori_catalogo.join(", "))
+            },
+        ));
+        t
+    }
 }
 
 /// La strada `cli` della tabella `Route`, esposta perché un chiamante che

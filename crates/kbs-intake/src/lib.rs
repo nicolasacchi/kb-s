@@ -20,6 +20,7 @@
 //! | [`gate`] | D4, l'unica strada che porta `in-corso` |
 //! | [`diagnosis`] | il giudizio orale del docente, che non è riproducibile e lo dice |
 //! | [`pratica`] | il tentativo non assistito: l'unica strada che scrive `unaided = 1` |
+//! | [`authoring`] | la strada di D8: l'esercizio dal file al registro, con la risposta prodotta dal generatore |
 //!
 //! # La regola che questo crate esiste per applicare
 //!
@@ -51,7 +52,9 @@
 //!   modello è uno strumento del docente, e qui si costruisce e si hashano i byte
 //!   che il docente manderà *a lui*;
 //! * **non possiede lo schema**: `kbs-store` scrive, e questo crate chiama;
-//! * **non genera esercizi**: sono `kbs-exercise`, e il perché è in [`scan`];
+//! * **non è il generatore**: i programmi e le famiglie sono di
+//!   `kbs-exercise`, e [`authoring`] li chiama senza reimplementarne nessuno —
+//!   la ragione per cui `scan` non produce istanze è in [`scan`];
 //! * **non serve HTTP**: quello è `kbs-server`, e le operazioni che espone sono
 //!   le stesse di questo crate — il che è il motivo per cui la CLI è una
 //!   libreria con un binario sottile e non un binario.
@@ -59,6 +62,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
 
+pub mod authoring;
 pub mod capture;
 pub mod cli;
 pub mod corpus_hash;
