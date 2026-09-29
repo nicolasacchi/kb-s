@@ -199,12 +199,14 @@ codice. Un progetto che non elenca i propri buchi li ripete dentro se stesso.
   rosso invece che la cosa diventa una discussione.
   **Che cosa non c'è, detto qui perché un progetto che enumera le cose fatte e
   tace sulle altre mente per omissione:** non c'è `kbs iscrivi` (l'iscrizione è
-  un'altra relazione e un altro percorso), non c'è un verbo che chiuda un
-  incarico (`Store::end_relation` esiste e la CLI non lo espone), non c'è una
-  **lettura** della provenienza — `relations_of` restituisce le relazioni e non
-  chi le ha registrate, e la colonna è raggiungibile solo da SQL finché non
-  servirà a un audit, cosa che è un'altra decisione —, e la provenienza non
-  entra nell'export D12, che esporta gli argomenti e non le relazioni.
+  un'altra relazione e un altro percorso), non c'è una **lettura** della
+  provenienza — `relations_of` restituisce le relazioni e non chi le ha
+  registrate, e le colonne sono raggiungibili solo da SQL finché non servirà a
+  un audit, cosa che è un'altra decisione —, e la provenienza non entra
+  nell'export D12, che esporta gli argomenti e non le relazioni. Il verbo che
+  chiude un incarico **c'è**, ed è `kbs termina`: quando questa voce è stata
+  scritta `Store::end_relation` esisteva e la CLI non lo esponeva, quindi
+  `relations` si apriva e non si chiudeva mai.
 - **La provenienza delle relazioni** (`V8__provenienza_delle_relazioni.sql`):
   `relations.recorded_by TEXT REFERENCES people (id)`, nullable. `relations` era
   l'unica tabella che decide la visibilità e l'unica **senza** chi l'ha
@@ -215,6 +217,45 @@ codice. Un progetto che non elenca i propri buchi li ripete dentro se stesso.
   hash cambia** — `relations` non è un registro — e l'export D12 resta a 20
   colonne: è la differenza rispetto a `V6`, che lì lo dichiarava perché lì era
   vero.
+- **`kbs termina`: l'incarico che finisce.** `Store::end_relation` esisteva,
+  era testata, e non aveva **nessun chiamante di produzione**: `relations` era
+  una tabella che si apriva e non si chiudeva mai, quindi un docente che
+  lasciava il corso restava `teaches` per sempre e quel diritto non aveva via
+  d'uscita dal prodotto. Il verbo scrive `until` e **chi lo ha chiuso**, ed è
+  solo della CLI locale come `insegna` — su quel trasporto la ragione è più
+  forte, perché togliere un diritto su un'identità dichiarata lascia fuori un
+  docente dal proprio corso. `la_strada_mcp.rs` lo prova per nome insieme a
+  `insegna`. Il verbo distingue due risposte che una sola non copre: un incarico
+  **già finito** non viene riscritto e non viene negato (`already: true`, e la
+  data che vale resta quella scritta), un incarico che **non è mai esistito** è
+  un rifiuto `relazione-assente` con codice 2, perché `already` a chi non ha
+  mai insegnato sarebbe una risposta falsa. Un terzo rifiuto è
+  `relazione-indietro`: chiudere un incarico prima che sia iniziato è la
+  violazione del `CHECK` di `V2`, e il verbo la dice con le parole della
+  regola invece di lasciare che arrivi come `store` — un codice 4 per un `--at`
+  fuori posto sarebbe un falso incidente.
+- **La provenienza della fine** (`V9__provenienza_della_fine.sql`):
+  `relations.ended_by TEXT REFERENCES people (id)`, nullable, con la stessa
+  semantica di `recorded_by` e per la stessa ragione (`NULL` vuol dire *non
+  registrato*). È una colonna **diversa** da `recorded_by` e non un suo
+  riuso: `recorded_by` è chi ha aperto l'incarico, `ended_by` chi l'ha chiuso,
+  e scrivere lo stesso nome nelle due colonne sarebbe la firma di un atto che
+  non è avvenuto. `Store::stato_relazione` è la lettura nuova che rende
+  distinguibili «non c'è mai stato» da «è già finito». **Nessuna foglia della
+  catena di hash cambia** e l'export D12 resta a 20 colonne, per la ragione che
+  `V8` dichiara: `relations` non è un registro e non è fra le tabelle
+  esportate.
+- **`verify` che non dichiara `--person` lo dice.** `PERSONA_SISTEMA`
+  (`person_0000`) resta il default di `--person` per `verify` — è il contratto
+  dichiarato del banco, `kbs_fixtures::spec::OPERATORE` — ma non è più un
+  default **silenzioso**: quando l'opzione manca il verbo scrive un avviso su
+  stderr e aggiunge `avvisi` al referto, e l'avviso nomina la persona, che
+  cosa diventa (`origin_by` di tutto quello che entra) e chi la può vedere
+  (chiunque, perché il predicato apre su `is_author` prima che sulle
+  relazioni). Esce `0`: un avviso non è un rifiuto, e un atto già avvenuto non
+  si ripete per far rumore. `avvisi` c'è anche quando è vuoto — un campo che
+  non c'è non dice «zero», dice «non lo so» — e il README porta `--person`
+  nella riga di `verify` che chi comincia copia.
 
 ### Cambiato
 
@@ -226,6 +267,11 @@ codice. Un progetto che non elenca i propri buchi li ripete dentro se stesso.
   diversi. Tutti i chiamanti sono stati migrati, nessuno è stato lasciato con un
   valore inventato. È un'API interna che pre-1.0 non è stabile, quindi la
   rottura è dichiarata e non scusata.
+- **`Store::end_relation` chiede chi chiude**, per la ragione che
+  `add_relation` chiede chi registra: la firma è ora
+  `end_relation(&mut self, person, course, relation, at, registrato_da)`, e
+  `until` da solo dice *quando* e non *chi*. Unico chiamante migrato:
+  `kbs-store/src/tests/visibility.rs`.
 
 - **La foglia di ogni riga di `observations` cambia.** `leaf_of` impegna il JSON
   canonico della riga intera, quindi aggiungere due campi a `Observation` cambia
@@ -249,6 +295,20 @@ codice. Un progetto che non elenca i propri buchi li ripete dentro se stesso.
   è falsificabile invece che ambigua.
 
 ### Corretto
+
+- **`kbs-server` — la cella della provenienza non ha perso un ramo, e non è più
+  in tre posti.** `coda.js`, `corso.js` e `lettore.js` avevano ciascuno la propria
+  copia, e **la copia della coda aveva perso il ramo `derived`**: un argomento
+  derivato in coda usciva come `derivata (derived)` — il nome dell'enum di Rust,
+  in chiaro, senza il link alla sorgente che l'elenco del corso mostrava. Le tre
+  copie non erano tre versioni: due erano la stessa funzione e una era
+  intenzionalmente diversa (quella del lettore mostra il `model lock` per intero).
+  Ora stanno tutte e due in `web/lib/provenienza.js`, che espone
+  `provenienzaCorta` e `provenienzaLunga`, e `tests/provenienza.rs` impedisce che
+  una quarta copia ricompaia o che una variante nuova di `Origin` resti senza
+  ramo. Il ramo mancava proprio nella pagina dove nessun'altra riga lo avrebbe
+  notato: `Derived` è l'unica variante che non ha `by`, e la coda non usa `by` per
+  decidere chi può ratificare.
 
 - `kbs-store` — `observations_for` **onora il predicato che dichiarava**: uno
   `SoloMio` (chi ha emesso un giudizio su quello studente) era accettato e il

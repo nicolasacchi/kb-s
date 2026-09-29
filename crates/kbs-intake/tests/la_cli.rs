@@ -511,3 +511,243 @@ fn nessuna_delle_tre_opzioni_ha_un_default() {
         assert_eq!(c.json()["error"]["code"], "opzione-mancante", "manca `--{manca}`");
     }
 }
+
+// ── `verify` senza `--person`: l'identità che il codice scrive al posto tua ──
+
+#[test]
+fn verify_senza_persona_lo_dice_su_stderr_e_nel_referto() {
+    let d = db();
+    let corpus = d.path().join("corpus");
+    std::fs::create_dir_all(corpus.join("letture")).unwrap();
+    std::fs::write(corpus.join(REL), artifact(false)).unwrap();
+    let dbp = d.path().join("k.sqlite");
+
+    // L'avviso non è una formula: chi lo ha scritto non può sbagliare il
+    // numero, perché l'attribuzione qui sotto è quella che il comando ha
+    // davvero scritto. Un avviso che nominasse qualcun altro sarebbe una
+    // riga in più e non una garanzia.
+    let c = esegui(&format!("verify --db {} {}", dbp.display(), corpus.display()), "");
+    assert_eq!(c.uscita, Uscita::Ok, "un avviso non è un rifiuto: {}", c.stderr);
+    let referto = c.json();
+    let a = &referto["avvisi"][0];
+    assert_eq!(a["code"], "persona-non-dichiarata");
+    assert_eq!(a["persona"], "person_0000");
+    assert!(c.stderr.contains("persona-non-dichiarata"), "stderr: {}", c.stderr);
+    assert!(c.stderr.contains("person_0000"), "stderr: {}", c.stderr);
+
+    let s = Store::open(&dbp).unwrap();
+    // `DISTINCT` su una colonna sola fa inferire a rusqlite una tupla di un
+    // elemento, e quel `FromSql` non esiste: la domanda giusta non e' «il
+    // primo», e' «sono tutti uguali». Si chiede quindi la lista e si confronta.
+    let firmati: Vec<String> = s
+        .conn()
+        .prepare("SELECT origin_by FROM arguments")
+        .expect("la query")
+        .query_map([], |r| r.get::<_, String>(0))
+        .expect("la lettura")
+        .map(|r| r.expect("ogni riga"))
+        .collect();
+    assert!(
+        !firmati.is_empty() && firmati.iter().all(|f| f == "person_0000"),
+        "l'argomento indicizzato porta come autore: {firmati:?}"
+    );
+    let firmato = &firmati[0];
+    assert_eq!(
+        firmato, "person_0000",
+        "l'avviso nomina la persona che ha firmato, non una che avrebbe potuto"
+    );
+
+    // Con `--person` l'avviso sparisce e il **campo resta, vuoto**: un campo
+    // che non c'è non dice «zero», dice «non lo so». E stderr tace, perché un
+    // canale che parla sempre è un canale che non si legge.
+    let corpus2 = d.path().join("corpus-dichiarata");
+    std::fs::create_dir_all(corpus2.join("letture")).unwrap();
+    std::fs::write(corpus2.join(REL), artifact(false)).unwrap();
+    let dichiarata = esegui(
+        &format!(
+            "verify --db {} --person person_0007 {}",
+            d.path().join("k2.sqlite").display(),
+            corpus2.display()
+        ),
+        "",
+    );
+    assert_eq!(dichiarata.uscita, Uscita::Ok, "stderr: {}", dichiarata.stderr);
+    assert_eq!(
+        dichiarata.json()["avvisi"].as_array().unwrap().len(),
+        0,
+        "una persona dichiarata non è un avviso"
+    );
+    assert_eq!(dichiarata.stderr, "", "nessun avviso, nessun rumore su stderr");
+}
+
+// ── `kbs termina`: l'incarico che finisce ──────────────────────────────────
+
+#[test]
+fn l_incarico_che_finisce_non_apre_piu_niente_e_dice_chi_l_ha_chiuso() {
+    let d = db();
+    let dbp = banco_con_corso(&d);
+    // Le date sono esplicite perché `V2` vieta una `until` anteriore alla
+    // `since`: un test che mettesse `now()` nell'apertura e `5000` nella fine
+    // starebbe provando il vincolo, non il verbo.
+    let insegna = esegui(
+        &format!(
+            "insegna --db {} --person person_0001 --course {CORSO} --docente person_0002 --at 4000",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(insegna.uscita, Uscita::Ok, "stderr: {}", insegna.stderr);
+    let vede = esegui(
+        &format!("read --db {} --person person_0002 --arg {REL}", dbp.display()),
+        "",
+    );
+    assert_eq!(vede.uscita, Uscita::Ok, "insegna, quindi vede: {}", vede.stderr);
+
+    let finito = esegui(
+        &format!(
+            "termina --db {} --person person_0001 --course {CORSO} --docente person_0002 --at 5000",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(finito.uscita, Uscita::Ok, "stderr: {}", finito.stderr);
+    let v = finito.json();
+    assert_eq!(v["command"], "termina");
+    assert_eq!(v["relation"], "teaches");
+    assert_eq!(v["docente"], "person_0002");
+    assert_eq!(v["registrato_da"], "person_0001", "chi ha chiuso non è chi se n'è andato");
+    assert_eq!(v["until"], 5000i64);
+    assert_eq!(v["recorded"], true);
+    assert_eq!(v["already"], false);
+
+    // Il buco chiuso, verificato sulle due estremità: la stessa persona, lo
+    // stesso argomento, e adesso non lo vede più. Non è un errore di uso e
+    // non è un incidente: è «non lo vedi».
+    let non_vede = esegui(
+        &format!("read --db {} --person person_0002 --arg {REL}", dbp.display()),
+        "",
+    );
+    assert_ne!(
+        non_vede.uscita,
+        Uscita::Ok,
+        "un incarico finito non è più un diritto: stderr {}",
+        non_vede.stderr
+    );
+
+    // Le due provenienze sono due fatti e non uno: `V8` dichiara chi ha
+    // **aperto** l'incarico, `V9` chi lo ha chiuso. Un solo nome nelle due
+    // colonne sarebbe la firma di un atto che non è avvenuto.
+    let s = Store::open(&dbp).unwrap();
+    let (aperto, chiuso): (String, String) = s
+        .conn()
+        .query_row(
+            "SELECT recorded_by, ended_by FROM relations \
+             WHERE person_id = 'person_0002' AND relation = 'teaches'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("la riga dell'incarico");
+    // `recorded_by` dice **chi ha registrato la riga**, che e' l'operatore che
+    // ha lanciato il verbo, non il docente di cui la relazione parla: e' la
+    // semantica che V8 dichiara quando tiene la provenienza fuori dalla PK
+    // («due righe che differiscono solo per chi le ha registrate non sono lo
+    // stesso fatto»). Il test prima si aspettava il docente per l'apertura e
+    // l'operatore per la chiusura: asimmetrico, e senza una ragione.
+    assert_eq!(aperto, "person_0001", "l'incarico l'ha registrato l'operatore");
+    assert_eq!(chiuso, "person_0001", "e l'ha chiuso lo stesso operatore");
+}
+
+#[test]
+fn un_incarico_già_finto_e_un_incarico_che_non_c_e_dicono_cose_diverse() {
+    let d = db();
+    let dbp = banco_con_corso(&d);
+
+    // Non c'è mai stato: `already` a chi non ha mai insegnato sarebbe una
+    // risposta falsa, quindi qui è un rifiuto e il codice è quello della
+    // regola (2), non un incidente di sistema.
+    let mai = esegui(
+        &format!(
+            "termina --db {} --person person_0001 --course {CORSO} --docente person_0002",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(mai.uscita, Uscita::Rifiutata);
+    assert_eq!(mai.json()["error"]["code"], "relazione-assente");
+    assert!(mai.stderr.contains("relazione-assente"), "stderr: {}", mai.stderr);
+
+    esegui(
+        &format!(
+            "insegna --db {} --person person_0001 --course {CORSO} --docente person_0002 --at 4000",
+            dbp.display()
+        ),
+        "",
+    );
+    // Una fine **prima** dell'inizio è un terzo rifiuto, e dice perché. Il
+    // vincolo di `V2` l'avrebbe respinta lo stesso, ma l'avrebbe detta `store`:
+    // un codice 4 per un `--at` sbagliato è un falso incidente, e questo
+    // protocollo ha un codice apposta per la differenza.
+    let indietro = esegui(
+        &format!(
+            "termina --db {} --person person_0001 --course {CORSO} --docente person_0002 --at 3000",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(indietro.uscita, Uscita::Rifiutata);
+    assert_eq!(indietro.json()["error"]["code"], "relazione-indietro");
+    assert!(indietro.stderr.contains("relazione-indietro"), "stderr: {}", indietro.stderr);
+
+    let primo = esegui(
+        &format!(
+            "termina --db {} --person person_0001 --course {CORSO} --docente person_0002 --at 5000",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(primo.uscita, Uscita::Ok, "stderr: {}", primo.stderr);
+
+    // Un atto che è già avvenuto non viene ripetuto per far rumore, e la
+    // seconda esecuzione **non riscrive la data**: `--at 9999` qui non è la
+    // verità, la verità è il 5000 di prima. Un `until` ricalcolato direbbe
+    // che l'incarico è finito tutte le volte che il comando viene ripetuto.
+    let secondo = esegui(
+        &format!(
+            "termina --db {} --person person_0001 --course {CORSO} --docente person_0002 --at 9999",
+            dbp.display()
+        ),
+        "",
+    );
+    assert_eq!(secondo.uscita, Uscita::Ok, "stderr: {}", secondo.stderr);
+    assert_eq!(secondo.json()["recorded"], false);
+    assert_eq!(secondo.json()["already"], true);
+    assert_eq!(secondo.json()["until"], 5000i64, "la data che vale è quella scritta");
+}
+
+#[test]
+fn nessuna_delle_tre_opzioni_di_termina_ha_un_default() {
+    // Le stesse tre di `insegna`, e per le stesse ragioni: `--person` che
+    // manca significherebbe `ended_by` a vuoto, `--docente` che manca
+    // significherebbe chiudere l'incarico di nessuno, `--course` che manca è
+    // una relazione che non ha perimetro.
+    let dir = db();
+    let dbp = banco_con_corso(&dir);
+    for (manca, riga) in [
+        (
+            "person",
+            format!("termina --db {} --course {CORSO} --docente person_0002", dbp.display()),
+        ),
+        (
+            "course",
+            format!("termina --db {} --person person_0001 --docente person_0002", dbp.display()),
+        ),
+        (
+            "docente",
+            format!("termina --db {} --person person_0001 --course {CORSO}", dbp.display()),
+        ),
+    ] {
+        let c = esegui(&riga, "");
+        assert_eq!(c.uscita, Uscita::Uso, "manca `--{manca}`: {}", c.stderr);
+        assert_eq!(c.json()["error"]["code"], "opzione-mancante", "manca `--{manca}`");
+    }
+}

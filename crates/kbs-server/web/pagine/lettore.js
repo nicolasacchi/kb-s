@@ -47,6 +47,7 @@
 import { el, testo, riempi, sezione, tabella, riquadroErrore, nulla } from "../lib/dom.js";
 import { get, runtimeTreDimensioni } from "../lib/api.js";
 import { datiScena, disegna, riquadroScena, impronta } from "../lib/scena.js";
+import { provenienzaLunga } from "../lib/provenienza.js";
 
 /**
  * La pagina di un argomento.
@@ -80,7 +81,7 @@ export async function lettore({ nodo, id }) {
     (argomento.prerequisites ?? []).map(async (pre) => {
       try {
         const [a, c] = await Promise.all([
-          get("argomento", { id: pre }),
+          get("argomento", { id: pre }, { query: { testo: "senza-contenuto" } }),
           get("claim", { id: pre }),
         ]);
         return [pre, { argomento: a.argument, claim: c.claims ?? [] }];
@@ -141,7 +142,7 @@ function campiArgomento(argomento) {
         ],
         [
           "Provenienza",
-          rigaProvenienza(argomento.origin),
+          provenienzaLunga(argomento.origin),
         ],
         ["Percorso sorgente", argomento.rel_path ?? "nessuno (creato via API)"],
         ["Hash del contenuto", el("code", {}, [argomento.content_hash])],
@@ -262,41 +263,10 @@ function statoDi(argomento) {
   }
 }
 
-/** La provenienza per intero: chi ha scritto, con quale modello e quale hash. */
-function rigaProvenienza(origin) {
-  switch (origin.kind) {
-    case "human":
-      return el("span", {}, [
-        "scritto a mano da ",
-        el("code", {}, [origin.by]),
-        ` il ${new Date(origin.at).toISOString().slice(0, 10)} — nessun modello coinvolto`,
-      ]);
-    case "generated":
-      return el("div", { class: "provenienza" }, [
-        el("span", {}, [
-          "generato fuori dal prodotto (D3) da ",
-          el("code", {}, [origin.lock.model_id]),
-          ", poi registrato da ",
-          el("code", {}, [origin.by]),
-        ]),
-        el("dl", { class: "model-lock" }, [
-          el("dt", {}, ["hash del prompt"]),
-          el("dd", {}, [el("code", {}, [origin.lock.prompt_hash])]),
-          el("dt", {}, ["hash del corpus"]),
-          el("dd", {}, [el("code", {}, [origin.lock.corpus_hash])]),
-          el("dt", {}, ["versione del generatore"]),
-          el("dd", {}, [el("code", {}, [origin.lock.generator_version])]),
-        ]),
-      ]);
-    case "derived":
-      return el("span", {}, [
-        "derivato da ",
-        el("a", { href: `#/argomento/${origin.from}` }, [origin.from]),
-      ]);
-    default:
-      return origin.kind;
-  }
-}
+// La provenienza non è qui: è in `../lib/provenienza.js`, ed è la versione per
+// intero, l'unica delle due che mostra il `model lock` (D10). Le due versioni
+// stanno nello stesso file perché una variante nuova di `Origin` deve avere un
+// ramo in entrambe, e le due guardie in `tests/provenienza.rs` lo pretendono.
 
 /** La tabella delle claim, con lo stato che non è mai implicito. */
 function tabellaClaim(claim) {

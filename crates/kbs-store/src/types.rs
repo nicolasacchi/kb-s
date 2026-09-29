@@ -136,6 +136,34 @@ pub struct CourseRelation {
     pub until: Option<Millis>,
 }
 
+/// Quante righe dicono che una persona ha avuto una relazione su un corso.
+///
+/// `righe` e `aperte` sono due numeri e non uno, e la ragione è che
+/// `relations_of` risponde a una sola delle due domande. «L'incarico è ancora
+/// aperto?» e «l'incarico è mai esistito?» hanno risposte diverse, e il verbo
+/// che chiude un incarico ha bisogno di entrambe: dire «era già finito» a chi
+/// non ha mai insegnato sarebbe una risposta falsa, e dirgli «non c'è» a chi
+/// l'ha finito ieri sarebbe un rifiuto di un atto che è già avvenuto.
+///
+/// `fino_a` è la data dell'ultima chiusura registrata, e serve a **non
+/// mentire** quando il verbo non scrive: un `until` ricalcolato a ogni
+/// esecuzione direbbe che l'incarico è finito tutte le volte che il comando
+/// viene ripetuto. `None` quando nessuna riga è chiusa.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatoRelazione {
+    /// Le righe che dicono che la relazione c'è stata, chiuse o aperte.
+    pub righe: usize,
+    /// Quante di queste sono ancora aperte (`until IS NULL`).
+    pub aperte: usize,
+    /// La `until` più recente fra le righe chiuse.
+    pub fino_a: Option<kbs_core::Millis>,
+    /// La `since` più antica fra le righe **aperte**: da quando l'incarico
+    /// vale. `V2` vieta una `until` minore della `since`, quindi chi chiude
+    /// ha bisogno di questo numero per dire **perché** la data che porta non
+    /// va bene invece di lasciare che sia il vincolo a rispondere.
+    pub aperta_da: Option<kbs_core::Millis>,
+}
+
 /// Un'osservazione **prima** che il registro le assegni il `seq`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ObservationDraft {

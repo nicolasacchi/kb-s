@@ -52,6 +52,7 @@
 
 import { el, riempi, sezione, tabella, riquadroErrore, nulla } from "../lib/dom.js";
 import { get, persona } from "../lib/api.js";
+import { provenienzaCorta } from "../lib/provenienza.js";
 
 /**
  * Gli stati di pubblicazione, con la parola che il docente legge.
@@ -127,7 +128,7 @@ function tabellaArgomenti(argomenti) {
     argomenti.map((argomento) => [
       cellaArgomento(argomento),
       cellaStato(argomento),
-      cellaProvenienza(argomento),
+      provenienzaCorta(argomento.origin),
       cellaRatifica(argomento),
     ]),
     { colonne: [{}, { class: "col-stato" }, {}, { class: "col-stato" }] },
@@ -154,34 +155,10 @@ function cellaStato(argomento) {
   ]);
 }
 
-/**
- * La provenienza: se è roba propria o roba generata sono due atti diversi.
- *
- * È la versione corta di quella del lettore, e non la versione per intero: in
- * un elenco la domanda è «di chi è», e l'hash del prompt sta nella pagina
- * dell'argomento, che è il posto dove lo si verifica.
- */
-function cellaProvenienza(argomento) {
-  const o = argomento.origin;
-  if (o.kind === "generated") {
-    return el("span", {}, [
-      "generata da ",
-      el("code", {}, [o.lock.model_id]),
-      " (fuori dal prodotto), registrata da ",
-      el("code", {}, [o.by]),
-    ]);
-  }
-  if (o.kind === "human") {
-    return el("span", {}, ["scritta a mano da ", el("code", {}, [o.by])]);
-  }
-  if (o.kind === "derived") {
-    return el("span", {}, [
-      "derivata da ",
-      el("a", { href: `#/argomento/${o.from}` }, [o.from]),
-    ]);
-  }
-  return el("span", {}, [o.kind]);
-}
+// La provenienza non è qui: è in `../lib/provenienza.js`, ed è la versione
+// corta di quella del lettore, non la versione per intero. In un elenco la
+// domanda è «di chi è», e l'hash del prompt sta nella pagina dell'argomento,
+// che è il posto dove lo si verifica.
 
 /**
  * La ratifica, o la sua assenza, dette in modo che non si confondano.

@@ -142,7 +142,7 @@ pub use store::Store;
 pub use types::{
     ArtifactChunk, ChunkId, ChunkKind, CourseRelation, GenerationEvent, GradeLevel, GradingDraft,
     ObservationDraft, Person, Register, Rubric, RubricVersion, SearchHit, SessionId, Source,
-    SourceStatus,
+    SourceStatus, StatoRelazione,
 };
 
 /// La versione di `kbs-store`. Se un altro crate ha bisogno di saper con quale

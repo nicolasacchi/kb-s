@@ -39,6 +39,40 @@
 //! argomento che [`capability::read`] ha già dichiarato leggibile, quindi non
 //! apre un canale — non c'è una seconda risposta in cui il predicato non
 //! passa.
+//!
+//! # Il testo si può chiedere meno
+//!
+//! La risposta di questa rotta è grande quanto il file che porta, e
+//! `web/pagine/lettore.js` la chiede una volta per l'argomento e **una per
+//! ogni prerequisito**: dei prerequisiti il lettore usa i metadati e non il
+//! testo, quindi il testo di ognuno è un peso che nessuno ha chiesto. Da qui
+//! `?testo=senza-contenuto`: il client la chiede per i prerequisiti, e il
+//! server risponde a quello che è stato chiesto.
+//!
+//! Il default è **tutto**, e la ragione è che togliere il parametro non deve
+//! far sparire il testo da nessuna parte. Il parametro può solo accorciare
+//! la risposta, mai allungarla: accorciare è una cortesia, allungare sarebbe
+//! un canale.
+//!
+//! Non è una stringa libera ma un `enum` dichiarato ([`RichiestaTesto`]),
+//! per la stessa ragione che rende `?state=` un `enum`: un valore che non
+//! combacia è un `400`, non un silenzio. Un parametro che volesse dire
+//! «senza il contenuto» e dicesse invece «tutto» è un peso che nessuno ha
+//! chiesto. E quel `400` esce **prima** del predicato — l'estrattore della
+//! query gira prima del corpo dell'handler — quindi è lo stesso per un id che
+//! non c'è, per uno che non si vede e per uno che si vede: il parametro non
+//! può diventare il modo di imparare che cosa c'è in un corso.
+//!
+//! La riduzione è applicata **dopo** [`capability::read`] e toglie una cosa
+//! sola, il campo `contenuto` — e per questo il valore del parametro dice
+//! **che cosa non arriva**, non che cosa arriva: nessuno deve andare a leggere
+//! la documentazione per sapere se il testo c'è. Tutto il resto — metadati,
+//! `byte`, e i cinque motivi dell'`Assente` — è quello che arriva senza il
+//! parametro. L'unica differenza di *forma* è dichiarata e voluta: sul file
+//! che non è UTF-8 la risposta è `senza-contenuto` con la sua misura, perché
+//! la riduzione guarda la statistica del file e non lo decodifica, e non sa e
+//! non dice se quel file sia un testo. Chiedere di meno fa sapere **meno
+//! cose**, che è il punto.
 
 use axum::extract::{Path, State};
 use axum::Json;
@@ -104,9 +138,43 @@ pub struct ArgumentsResponse {
     pub arguments: Vec<Argument>,
 }
 
+/// La query di [`read`]: quanto del testo viaggia.
+///
+/// Un solo campo, e il suo default è «tutto». `?testo=senza-contenuto` non è
+/// un parametro libero: [`RichiestaTesto`] è un `enum`, quindi un valore che
+/// non combacia è un `400` — la stessa risposta che dà già `?state=` nella
+/// rotta di elenco, e per la stessa ragione.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct ReadQuery {
+    /// Quanto del file d'ingresso viaggia nella risposta.
+    #[serde(default)]
+    pub testo: RichiestaTesto,
+}
+
+/// Quanto del testo viaggia in una risposta di [`read`].
+///
+/// Sono due stati e non una misura: un parametro numerico sarebbe un
+/// contratto che il server non può onorare — «i primi 1000 caratteri» non è
+/// un file che si può mostrare, e un file tagliato a metà è un file che
+/// sembra intero. Il default è [`RichiestaTesto::Intero`] perché la risposta
+/// senza query è quella che chi apre un argomento si aspetta.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RichiestaTesto {
+    /// Il file per intero, parola per parola. È il default, è quello che un
+    /// lettore mostra, e non si spegne togliendo il parametro.
+    #[default]
+    Intero,
+    /// Solo la scheda del file: `stato` e `byte`, nessun `contenuto`. Non è un
+    /// «non c'è niente» e non è un `Assente` bugiardo: il file c'è, e la
+    /// risposta dice quanto è grande. Il nome dice **che cosa non è arrivato**,
+    /// e il file non viene nemmeno letto.
+    SenzaContenuto,
+}
+
 /// `GET /api/v1/arguments/{id}`
 ///
-/// `200 {"argument": {…}, "testo": {…}}` · `404`.
+/// `200 {"argument": {…}, "testo": {…}}` · `400` · `404`.
 ///
 /// Il `404` è la stessa risposta di un id mai esistito, e la stessa di un id che
 /// la persona non può leggere. L'id di un argomento è `arg_<hash del percorso>`
@@ -118,10 +186,25 @@ pub struct ArgumentsResponse {
 /// l'argomento che [`capability::read`] ha appena dichiarato leggibile, e il
 /// testo è suo. Perché viaggi qui e non in una porta accanto, e che cosa di
 /// conseguenza non fa, è nel doc del modulo.
+///
+/// # `?testo=senza-contenuto`
+///
+/// La risposta è grande quanto il file che porta, e il parametro chiede **la
+/// risposta senza il contenuto**: `stato` e `byte`, e niente `contenuto`. È
+/// ciò che chiede `web/pagine/lettore.js` per ogni prerequisito, dei quali usa
+/// solo i metadati; l'argomento che si sta leggendo non mette il parametro e
+/// porta il testo per intero.
+///
+/// Il default è il testo intero, quindi togliere il parametro non fa sparire
+/// niente e metterlo non fa comparire niente. Un valore che non è
+/// [`RichiestaTesto`] è un `400` come lo è già `?state=` per l'elenco, e
+/// arriva prima del predicato: perché il parametro non possa diventare un
+/// canale è nel doc del modulo.
 pub async fn read(
     State(state): State<AppState>,
     identita: SharedIdentity,
     Path(id): Path<String>,
+    axum::extract::Query(richiesta): axum::extract::Query<ReadQuery>,
 ) -> Result<Json<ArgumentResponse>, ApiError> {
     let id = ids::argument(&id).ok_or(ApiError::Absent)?;
     let argomento = state
@@ -130,7 +213,7 @@ pub async fn read(
     // Il file si legge **fuori** dalla transazione: la decisione è già presa, e
     // tenere aperta la lettura del database per il tempo di una `read` su disco
     // è un lock che si paga per ogni argomento che la pagina apre.
-    let testo = testo_del_file(&argomento, &state.config);
+    let testo = testo_del_file(&argomento, &state.config, richiesta.testo);
     Ok(Json(ArgumentResponse {
         argument: argomento,
         testo,
@@ -141,7 +224,9 @@ pub async fn read(
 pub struct ArgumentResponse {
     /// L'argomento, con la sua provenienza e la sua ratifica.
     pub argument: Argument,
-    /// Il testo del file, o il motivo per cui qui non c'è.
+    /// Il testo del file, o il motivo per cui qui non c'è. Con
+    /// `?testo=senza-contenuto` è [`Testo::SenzaContenuto`]: il file c'è e
+    /// quanto è grande, e quello che non arriva è detto dal nome stesso.
     pub testo: Testo,
 }
 
@@ -149,11 +234,17 @@ pub struct ArgumentResponse {
 ///
 /// [`crate::routes::artifact::MAX_ARTIFACT`] è 32 MiB ed è il tetto di un
 /// artifact servito come documento. Qui il tetto è più basso e per una ragione
-/// diversa: `web/pagine/lettore.js` chiama questa rotta una volta per
-/// l'argomento e **una per ogni prerequisito**, quindi 32 MiB per file
-/// significherebbero che una lezione con dieci prerequisiti grossi scarica
-/// 320 MiB per disegnare una tabella. Un MiB sta sopra il testo di un artifact
-/// normale e sotto la dimensione in cui il peso si sente.
+/// diversa: un MiB è ciò che un lettore deve poter tenere aperto per mostrarlo,
+/// e non un peso da moltiplicare per un elenco. I prerequisiti non lo
+/// richiedono — chiedono [`RichiestaTesto::SenzaContenuto`], che non legge il
+/// file e pesa quanto i metadati — quindi il costo non cresce con il loro
+/// numero.
+///
+/// Il tetto vale anche per la risposta ridotta: un file da due giganti risponde
+/// `troppo-grande` **con la sua misura** anche quando nessuno ne chiede il
+/// contenuto, perché «non te lo porto» e «non c'è» sono due risposte diverse
+/// e solo la prima è vera. Il tetto è dichiarato in un posto solo e i suoi
+/// cinque motivi sono cinque [`MotivoTesto`].
 pub const MAX_TESTO: usize = 1024 * 1024;
 
 /// Il testo del file d'ingresso, o il motivo per cui qui non c'è.
@@ -163,6 +254,12 @@ pub const MAX_TESTO: usize = 1024 * 1024;
 /// la verità è «non posso mostrarlo». Ogni variante dice una cosa diversa, e
 /// sono cose diverse per chi legge: un file che non c'è è un errore di chi
 /// l'ha registrato, un file che non è testo è un'altra cosa.
+///
+/// La terza variante, [`Testo::SenzaContenuto`], non è un `Presente`
+/// svuotato: il client l'ha chiesta (`?testo=senza-contenuto`), il file c'è,
+/// e la risposta dice quanto è grande. È dichiarata come variante, e non come
+/// un campo che a volte c'è, perché «mi hai detto che c'è e non mi hai detto
+/// che cosa c'è» è una terza risposta.
 #[derive(Debug, Serialize)]
 #[serde(tag = "stato", rename_all = "kebab-case")]
 pub enum Testo {
@@ -175,6 +272,19 @@ pub enum Testo {
         /// I byte del file. Maggiore dei caratteri se il file contiene
         /// accenti o emoji, ed è il numero che la pagina usa per dire quanto
         /// pesa.
+        byte: usize,
+    },
+    /// Il file c'è e il client ha chiesto la risposta **senza il contenuto**.
+    ///
+    /// Non è un `Presente` con il campo vuoto e non è un `Assente`: il file
+    /// c'è, e l'unica cosa che manca è il testo che nessuno ha chiesto. Il
+    /// corpo che ne esce è più piccolo in byte e **non più povero di fatti**:
+    /// la misura c'è, ed è la misura vera, letta dal filesystem. Il nome
+    /// della variante dice che cosa non è arrivato, quindi un client non deve
+    /// indovinarlo dal fatto che un campo manca.
+    SenzaContenuto {
+        /// I byte del file sul disco. È il numero che permette a chi ha la
+        /// scheda di decidere se chiedere il contenuto con un secondo `GET`.
         byte: usize,
     },
     /// Il file non è qui, o non è un testo che questa rotta può portare.
@@ -219,7 +329,16 @@ pub enum MotivoTesto {
 /// il percorso dell'argomento (vedi [`sandbox::resolve_file`]) e non
 /// arrivano qui. È una parte dichiarata di ciò che questa rotta non rende, non
 /// un dettaglio: la pagina lo dice.
-fn testo_del_file(argomento: &Argument, config: &ServerConfig) -> Testo {
+///
+/// `richiesta` arriva **dopo** che il predicato ha deciso e non lo ripete: la
+/// scheda non è un permesso, è una risposta più piccola a una domanda che il
+/// predicato ha già autorizzato. Per questo la riduzione non può diventare un
+/// canale — vedi il doc del modulo.
+fn testo_del_file(
+    argomento: &Argument,
+    config: &ServerConfig,
+    richiesta: RichiestaTesto,
+) -> Testo {
     let assente = |motivo: MotivoTesto, byte: Option<usize>| Testo::Assente { motivo, byte };
     let Some(rel_path) = argomento.rel_path.as_deref() else {
         return assente(MotivoTesto::NessunFile, None);
@@ -241,19 +360,28 @@ fn testo_del_file(argomento: &Argument, config: &ServerConfig) -> Testo {
     };
     // La dimensione si legge **prima**: leggere un file da due giganti per
     // scoprire dopo che era troppo grande è il modo di trasformare un tetto in
-    // una promessa.
-    match std::fs::metadata(&percorso) {
-        Ok(m) if m.len() > MAX_TESTO as u64 => {
-            return assente(MotivoTesto::TroppoGrande, Some(m.len() as usize));
-        }
-        Ok(_) => {}
+    // una promessa. E la si legge anche per la risposta ridotta, che della
+    // dimensione fa il suo unico contenuto.
+    let byte = match std::fs::metadata(&percorso) {
+        Ok(m) => m.len(),
         Err(errore) => {
             tracing::warn!(%errore, "file di argomento non leggibile");
             return assente(MotivoTesto::NonLeggibile, None);
         }
+    };
+    if byte > MAX_TESTO as u64 {
+        return assente(MotivoTesto::TroppoGrande, Some(byte as usize));
+    }
+    // La risposta ridotta si ferma qui: il file è stato **misurato**, non
+    // letto. È metà del risparmio — l'altra metà è che il peso non attraversa
+    // la rete — ed è anche il motivo per cui questa risposta non sa se il
+    // file è UTF-8: non lo ha decodificato, e un fatto che non è stato cercato
+    // non viene dichiarato.
+    if richiesta == RichiestaTesto::SenzaContenuto {
+        return Testo::SenzaContenuto { byte: byte as usize };
     }
     let grezzo = match std::fs::read(&percorso) {
-        Ok(byte) => byte,
+        Ok(letti) => letti,
         Err(errore) => {
             tracing::warn!(%errore, "file di argomento non leggibile");
             return assente(MotivoTesto::NonLeggibile, None);

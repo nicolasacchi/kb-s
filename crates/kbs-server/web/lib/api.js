@@ -19,6 +19,11 @@
 //    ogni argomento con una seconda chiamata, e restituisce la coppia. Il
 //    test `la_ricerca_ non_ritorna_il_testo_e_il_client_riprende_l_argomento`
 //    passa dal router vero e lo verifica.
+//    La seconda chiamata chiede `?testo=senza-contenuto`: la pagina della
+//    ricerca mostra i metadati di ogni risultato e non il suo materiale, e un
+//    elenco di N risultati che scaricasse N testi per non mostrarne nessuno è
+//    un costo che nessuno ha chiesto. Il testo lo chiede il lettore, e lo
+//    chiede per l'argomento che sta leggendo.
 
 import { percorso, percorsoConQuery } from "./rotte.js";
 
@@ -241,9 +246,12 @@ export async function runtimeTreDimensioni() {
  *
  * `/api/v1/search` dà `{argument, course, rank}` e basta: il testo non c'è e
  * non ci sarà, perché l'indice restituisce un ordinamento e non un documento.
- * Quindi ogni hit viene ripreso con `GET /api/v1/arguments/{id}`, che passa
- * dal predicato: un hit che il predicato non approva non arriva qui, e se
- * arrivasse lo stesso si tradurrebbe nello stesso `404` di prima.
+ * Quindi ogni hit viene ripreso con `GET /api/v1/arguments/{id}?testo=senza-contenuto`,
+ * che passa dal predicato: un hit che il predicato non approva non arriva qui, e se
+ * arrivasse lo stesso si tradurrebbe nello stesso `404` di prima. Il parametro
+ * chiede la risposta senza il contenuto, perché la pagina della ricerca non
+ * mostra il testo dei risultati e un elenco di N righe non deve scaricare N
+ * materiali per non mostrarne nessuno.
  *
  * `rank` più negativo è migliore, e l'ordine dell'array è quello dell'indice:
  * qui non si riordina, perché un secondo ordinamento diverge dal primo alla
@@ -259,7 +267,11 @@ export async function cercaConTesto(q, limite) {
   const righe = [];
   for (const hit of hits) {
     try {
-      const letto = await get("argomento", { id: hit.argument });
+      const letto = await get(
+        "argomento",
+        { id: hit.argument },
+        { query: { testo: "senza-contenuto" } },
+      );
       righe.push({ ...hit, argomento: letto.argument, assente: false });
     } catch (errore) {
       if (!(errore instanceof ErroreKbs) || errore.tipo !== "assente") {

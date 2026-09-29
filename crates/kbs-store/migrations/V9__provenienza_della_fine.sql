@@ -1,0 +1,57 @@
+-- V9: chi ha chiuso l'incarico.
+--
+-- ── Il buco che questa colonna chiude ──────────────────────────────────────
+--
+-- `V8` ha dichiarato chi ha **aperto** una relazione (`recorded_by`). La fine
+-- era rimasta anonima: `Store::end_relation` scriveva `until` e nient'altro,
+-- e `until` dice *quando*, non *chi*. La stessa relazione chiusa dalla persona
+-- che se n'è andata o dalla segreteria dà lo stesso database, e la domanda che
+-- sorge a un audit — «questa riga l'ha scritta qualcuno?» — riceve due risposte
+-- diverse solo nella colonna che manca.
+--
+-- Il buco era anche operativo, e più grave della colonna: `end_relation` non
+-- aveva **nessun chiamante di produzione**. `relations` era una tabella che si
+-- apriva (`kbs insegna`) e non si chiudeva mai, quindi un docente che lasciava
+-- il corso restava `teaches` per sempre e quel diritto non aveva via d'uscita
+-- dal prodotto. Da questa migrazione la strada che chiama `end_relation` è il
+-- verbo `kbs termina`, in sola CLI come `kbs insegna`, e passa sempre
+-- `--person`.
+--
+-- ── Perché `NULL` e non `NOT NULL` ─────────────────────────────────────────
+--
+-- Per la ragione che `V8` dichiara per `recorded_by` e `V6` per `unaided`:
+-- le righe chiuse **prima** di questa migrazione hanno una `until` senza
+-- `ended_by`, e dichiarare retroattivamente `person_0000` o l'autore della
+-- riga sarebbe una falsificazione firmata da una migrazione. `NULL` vuol
+-- dire **non registrato**, non *nessuno*: sono due fatti diversi, e il secondo
+-- non si può sapere.
+--
+-- Da `V9` in poi il percorso di produzione che chiude una relazione è
+-- `kbs termina`, e quel verbo passa sempre `--person`; il `NULL` è
+-- raggiungibile solo da SQL scritto a mano — che è il caso per cui il tipo
+-- della colonna è dichiarato sotto.
+--
+-- ── Perché la colonna non è nella PK ───────────────────────────────────────
+--
+-- La PK resta `(person_id, course_id, relation, since)`, e `until` non c'è
+-- nemmeno: una relazione chiusa è **lo stesso fatto** di quella aperta, con
+-- una data in più. Mettere `ended_by` in chiave direbbe che chiudere un
+-- incarico crea un fatto nuovo, che è il contrario di quello che è: lo
+-- chiude.
+--
+-- ── Cosa NON cambia ─────────────────────────────────────────────────────────
+--
+-- * **Il predicato.** `may_read` legge `relations_of`, e `relations_of`
+--   continua a chiedere solo `until`: la provenienza è un fatto **sulla**
+--   relazione, non una **condizione** per esistere. Una riga chiusa da qualcuno
+--   e una chiusa da nessuno danno la stessa risposta, ed è la risposta giusta.
+-- * **La catena di hash.** `relations` non è un registro: nessuna foglia già
+--   firmata cambia, come per `V8`.
+-- * **L'export D12.** `export_fixed_columns` esporta gli argomenti citabili e
+--   `relations` non è fra le sue tabelle: `FIXED_COLUMNS` resta a 20 colonne.
+--
+-- -- `MAX` e non assegnazione, per la ragione che `V3` dichiara: l'ordine con cui
+-- refinery applica le migrazioni non è il loro numero.
+ALTER TABLE relations ADD COLUMN ended_by TEXT REFERENCES people (id);
+
+UPDATE schema_epoch SET epoch = MAX(epoch, 9);

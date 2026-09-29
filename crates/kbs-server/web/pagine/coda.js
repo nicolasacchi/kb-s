@@ -28,6 +28,7 @@
 
 import { el, testo, riempi, sezione, tabella, riquadroErrore, nulla } from "../lib/dom.js";
 import { get, post, persona } from "../lib/api.js";
+import { provenienzaCorta } from "../lib/provenienza.js";
 
 /**
  * La coda di ratifica di un corso.
@@ -63,7 +64,7 @@ export async function coda({ nodo, corso }) {
               ["Argomento", "Provenienza", "Che cosa manca", "Azioni"],
               voci.map((voce) => [
                 cellaArgomento(voce.argument),
-                cellaProvenienza(voce.argument),
+                provenienzaCorta(voce.argument.origin),
                 cellaCheCosaMancano(voce),
                 cellaAzioni(corso, voce, rileggi),
               ]),
@@ -113,22 +114,14 @@ function cellaArgomento(argomento) {
   ]);
 }
 
-/** La provenienza: se è roba propria o roba generata sono due atti diversi. */
-function cellaProvenienza(argomento) {
-  const o = argomento.origin;
-  if (o.kind === "generated") {
-    return el("span", {}, [
-      "generata da ",
-      el("code", {}, [o.lock.model_id]),
-      " (fuori dal prodotto), registrata da ",
-      el("code", {}, [o.by]),
-    ]);
-  }
-  if (o.kind === "human") {
-    return el("span", {}, ["scritta a mano da ", el("code", {}, [o.by])]);
-  }
-  return el("span", {}, [`derivata (${o.kind})`]);
-}
+// La provenienza non è qui: è in `../lib/provenienza.js`, che la disegna per
+// tutte e tre le pagine che la mostrano. Qui la coda aveva una copia sua che
+// aveva perso il ramo `derived` — e un argomento derivato in coda usciva come
+// `derivata (derived)`, il nome dell'enum di Rust in chiaro, senza il link alla
+// sorgente che l'elenco del corso mostrava. La copia non era un dettaglio:
+// `Derived` è l'unica variante che non ha `by`, e questa pagina non usa `by` per
+// decidere chi può ratificare, quindi nessun'altra riga avrebbe notato che il
+// ramo era sparito.
 
 /**
  * Che cosa manca, detto con le parole del server.

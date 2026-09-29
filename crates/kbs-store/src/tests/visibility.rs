@@ -262,9 +262,18 @@ fn relazione_chiusa_non_e_piu_una_relazione() {
     assert!(s.store.read_argument(&s.student, &live.id).is_ok());
 
     // Una data **passata**: `until` futura significherebbe un'iscrizione che
-    // scade fra diciotto anni, cioè ancora aperta.
+    // scade fra diciotto anni, cioè ancora aperta. La firma chiede **chi**
+    // chiude, e da `V9` non c'è più un modo tipizzato per chiudere senza:
+    // il `NULL` che la colonna accetta è raggiungibile solo da SQL scritto a
+    // mano, e vuol dire «non registrato».
     s.store
-        .end_relation(&s.student, &s.course, Relation::EnrolledIn, Millis(1_700_000_001_000))
+        .end_relation(
+            &s.student,
+            &s.course,
+            Relation::EnrolledIn,
+            Millis(1_700_000_001_000),
+            &s.teacher,
+        )
         .expect("fine iscrizione");
     assert!(
         s.store
@@ -275,6 +284,91 @@ fn relazione_chiusa_non_e_piu_una_relazione() {
     s.store
         .read_argument(&s.student, &live.id)
         .expect_err("fuori corso, non vede più il materiale in corso");
+}
+
+#[test]
+fn la_fine_di_un_incarico_dice_chi_l_ha_chiusa_e_non_confunde_le_due_provenienze() {
+    let mut s = School::new();
+    let live = s.published(1);
+    // Un secondo docente del **corso**: `other_teacher` insegna l'altro corso,
+    // e senza questa riga non c'è niente da chiudere.
+    s.store
+        .add_relation(
+            &crate::types::CourseRelation {
+                person: s.other_teacher.clone(),
+                course: s.course.clone(),
+                relation: Relation::Teaches,
+                since: Millis(0),
+                until: None,
+            },
+            &s.other_teacher,
+        )
+        .expect("incarico");
+    s.store
+        .read_argument(&s.other_teacher, &live.id)
+        .expect("insegna, quindi vede il corso");
+
+    let prima = s
+        .store
+        .stato_relazione(&s.other_teacher, &s.course, Relation::Teaches)
+        .expect("stato");
+    assert_eq!((prima.righe, prima.aperte), (1, 1));
+
+    s.store
+        .end_relation(
+            &s.other_teacher,
+            &s.course,
+            Relation::Teaches,
+            Millis(1_700_000_001_000),
+            &s.teacher,
+        )
+        .expect("fine incarico");
+
+    let dopo = s
+        .store
+        .stato_relazione(&s.other_teacher, &s.course, Relation::Teaches)
+        .expect("stato");
+    assert_eq!((dopo.righe, dopo.aperte), (1, 0), "la riga c'è stata ed è chiusa");
+    assert_eq!(
+        dopo.fino_a,
+        Some(Millis(1_700_000_001_000)),
+        "la fine è quella scritta, non quella che il chiamante sta per chiedere"
+    );
+    assert!(
+        s.store
+            .relations_of(&s.other_teacher, &s.course)
+            .expect("relazioni")
+            .is_empty(),
+        "un incarico finito non è più una relazione"
+    );
+    s.store
+        .read_argument(&s.other_teacher, &live.id)
+        .expect_err("fuori corso, non vede più il materiale");
+
+    // Le due colonne dicono due fatti: `recorded_by` è chi ha **aperto**
+    // l'incarico, `ended_by` chi lo ha chiuso. Scrivere lo stesso nome due
+    // volte sarebbe la firma di un atto che non è avvenuto.
+    let (registrato, chiuso): (String, String) = s
+        .store
+        .conn()
+        .query_row(
+            "SELECT recorded_by, ended_by FROM relations \
+             WHERE person_id = ?1 AND course_id = ?2 AND relation = 'teaches'",
+            rusqlite::params![s.other_teacher.0.as_str(), s.course.0.as_str()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("le due provenienze");
+    assert_eq!(registrato, s.other_teacher.0, "l'incarico l'ha aperto chi insegna");
+    assert_eq!(chiuso, s.teacher.0, "l'incarico l'ha chiuso chi l'ha chiuso");
+
+    // E «non c'è mai stato» è una risposta diversa da «è già finito»: senza
+    // questa distinzione il verbo che chiude direbbe `already` a chi non ha
+    // mai insegnato.
+    let mai = s
+        .store
+        .stato_relazione(&s.outsider, &s.course, Relation::Teaches)
+        .expect("stato");
+    assert_eq!((mai.righe, mai.aperte), (0, 0));
 }
 
 #[test]

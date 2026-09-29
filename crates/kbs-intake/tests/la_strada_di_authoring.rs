@@ -27,7 +27,6 @@ use std::path::{Path, PathBuf};
 
 use kbs_core::{Millis, PersonId, Relation};
 use kbs_exercise::families::Family;
-use kbs_exercise::Generator;
 use kbs_intake::cli::{self, Uscita};
 use kbs_intake::mcp;
 use kbs_intake::route::{self, Request, Route};

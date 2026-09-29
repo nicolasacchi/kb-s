@@ -138,6 +138,12 @@ pub enum Error {
     #[error("l'esercizio del semi `{seed}` non si costruisce neppure dopo che il generatore l'ha prodotto: {detail}")]
     ExerciseUnbuildable { seed: String, detail: String },
 
+    #[error("nessuna riga dice che `{persona}` insegni `{corso}`: non c'è un incarico da chiudere. Un incarico già finito non arriva qui — quello risponde `already`, perché un atto che è già avvenuto non viene ripetuto e non viene negato")]
+    RelazioneAssente { persona: String, corso: String },
+
+    #[error("l'incarico è aperto dal {since} e non si chiude a {at}: `relations` vieta una fine che precede l'inizio, e una riga che dice che qualcuno insegnava un corso che non era ancora suo sarebbe un fatto falso")]
+    RelazioneIndietro { at: i64, since: i64 },
+
 }
 
 impl Error {
@@ -185,6 +191,8 @@ impl Error {
             Error::CorsoAssente { .. } => "corso-assente",
             Error::NotAuthor { .. } => "not-author",
             Error::ExerciseUnbuildable { .. } => "esercizio-non-costruibile",
+            Error::RelazioneAssente { .. } => "relazione-assente",
+            Error::RelazioneIndietro { .. } => "relazione-indietro",
         }
     }
 }

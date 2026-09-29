@@ -69,6 +69,26 @@ pub const PROTOCOLLO: &str = "kbs-cli/1";
 /// Non è un ruolo (D5): è un `PersonId`, e non ha relazioni di corso. Ciò che
 /// la rende capace di rileggere le bozze è che è **l'autore** di ciò che ha
 /// indicizzato, e `kbs_store::for_argument` lo deriva da lì.
+///
+/// # Perché il default resta, e chi lo dichiara
+///
+/// Il default non è un'identità anonima: è una **stringa scritta nel codice**,
+/// e chiunque può dichiararla. Il predicato di D5 apre su `is_author` **prima**
+/// di guardare le relazioni, quindi questa persona vede tutto ciò che ha
+/// indicizzato, per sempre, e lo vede chiunque si presenti con quel nome.
+///
+/// Non è un buon default e non è un default neutro: è un default che
+/// attribuisce a qualcuno la paternità di ciò che ha scritto un altro. Per
+/// questo `verify` **non lo usa in silenzio**: quando `--person` non c'è, il
+/// verbo scrive un avviso su stderr e mette `avvisi` nel referto, e l'avviso
+/// dice il numero della persona, che cosa diventa e chi la può vedere. Il
+/// default è dichiarato, non nascosto: `kbs_fixtures::spec::OPERATORE` è lo
+/// stesso numero, dichiarato dalla parte del banco che lo usa.
+///
+/// La strada che chiude davvero il buco non è questa ed è dichiarata altrove:
+/// `--person` è **obbligatorio** in `ciclo`, `insegna`, `autora` e in ogni
+/// verbo che scrive una provenienza (`V8`), e il README lo porta anche nella
+/// riga di `verify` che chi comincia copia.
 pub const PERSONA_SISTEMA: &str = "person_0000";
 
 /// Il codice di uscita. Un tipo, perché `main` non deve fare aritmetica su
@@ -141,7 +161,10 @@ USO:
 
 VERBI:
     capture            legge un paste da stdin e lo mette in bozza (D10.1)
-    verify             indicizza una cartella e stampa il referto (D10.3)
+    verify             indicizza una cartella e stampa il referto (D10.3).
+                       Unico verbo con un default su --person: senza
+                       l'opzione scrive come `person_0000` e lo DICE, su
+                       stderr e in `avvisi` nel referto.
     lock               stampa il lock di una richiesta, con i suoi byte (D10)
     diagnose           registra una diagnosi orale (D6, D10)
     tenta              registra un tentativo non assistito: la riga `unaided = 1`
@@ -155,6 +178,14 @@ VERBI:
                        nient'altro: senza quella riga restano chiusi l'esercizio,
                        lo scrutinio e l'export. --docente è la persona che
                        insegna, --person è chi ha registrato la riga.
+    termina            chiude l'incarico: scrive `until` e chi l'ha chiuso,
+                       e da quel momento `teaches` non apre più niente per
+                       quella persona. Solo in CLI, come `insegna` e per la
+                       stessa ragione. --docente è la persona che smette,
+                       --person è chi ha registrato la fine. Un incarico già
+                       finito non viene riscritto e non viene negato: il
+                       risultato dice `already`; un incarico che non c'è
+                       mai stato è un rifiuto (`relazione-assente`).
     autora            porta nel registro l'esercizio che un file dichiara:
                        scrive `exercises` col checker e `instances` coll'atteso
                        prodotto dal generatore, mai scritto dal chiamante.
@@ -182,7 +213,8 @@ VERBI:
 
 OPZIONI COMUNI:
     --db <percorso>    il database. Obbligatorio per ogni verbo che scrive.
-    --person <id>      chi agisce. Obbligatorio ovunque.
+    --person <id>      chi agisce. Obbligatorio ovunque tranne `verify`, che
+                       ha un default dichiarato e avvisato (vedi sopra).
     --course <id>      il corso, quando non lo dichiara il documento.
     --json             accettata e senza effetto: il referto è già JSON
 
@@ -221,7 +253,7 @@ pub fn esegui(
         return Uscita::Ok;
     }
 
-    let (uscita, mut valore, rifiuto) = match dispatch(comando, resto, stdin, out) {
+    let (uscita, mut valore, rifiuto) = match dispatch(comando, resto, stdin, out, err) {
         Esito::Fatto(v) => (Uscita::Ok, v, None),
         Esito::NonFatto { passo, rapporto, errore } => {
             // Il motivo su stderr **anche** quando lo stdout non è silenzioso,
@@ -262,11 +294,12 @@ fn dispatch(
     args: &[String],
     stdin: &mut dyn Read,
     out: &mut dyn std::io::Write,
+    err: &mut dyn std::io::Write,
 ) -> Esito {
     let mut inp = std::io::BufReader::new(&mut *stdin);
     match comando {
         "capture" => cattura(args, &mut inp).into(),
-        "verify" => verifica(args).into(),
+        "verify" => verifica(args, err).into(),
         "lock" => lock(args).into(),
         "diagnose" => diagnostica(args).into(),
         "generate" => genera(args).into(),
@@ -277,6 +310,7 @@ fn dispatch(
         "tenta" => tenta(args).into(),
         "mcp" => servi_mcp(args, &mut inp, out).into(),
         "insegna" => insegna(args).into(),
+        "termina" => termina(args).into(),
         "autora" => autora(args).into(),
         "ciclo" => ciclo(args),
         altro => Esito::NonFatto {
@@ -284,7 +318,7 @@ fn dispatch(
             rapporto: serde_json::json!({}),
             errore: Error::ComandoSconosciuto {
                 nome: altro.to_string(),
-                noti: "capture, verify, lock, diagnose, tenta, generate, generations, ratify, promote, read, insegna, autora, ciclo, mcp, version, help",
+                noti: "capture, verify, lock, diagnose, tenta, generate, generations, ratify, promote, read, insegna, termina, autora, ciclo, mcp, version, help",
             },
         },
     }
@@ -513,20 +547,86 @@ fn cattura(args: &[String], stdin: &mut dyn Read) -> Result<serde_json::Value> {
 /// rifiutarlo sarebbe un test di stile travestito da robustezza. È per questo
 /// che `--json` consuma il valore che segue senza diventare un errore: con
 /// `--json` in coda a `verify`, il valore successivo è la radice.
-fn verifica(args: &[String]) -> Result<serde_json::Value> {
+///
+/// # `--person` mancante: un avviso, non un silenzio
+///
+/// `verify` è l'unico verbo con un default su `--person`, e il default è
+/// [`PERSONA_SISTEMA`]: una **stringa scritta nel codice** che diventa
+/// l'`origin_by` di tutto quello che entra. Il predicato di D5 apre su
+/// `is_author` prima di guardare le relazioni, quindi quella persona vede
+/// tutto ciò che ha indicizzato, e lo vede chiunque si dichiari con quel
+/// numero. Un default del genere è una scelta, e una scelta che l'operatore
+/// non conosce è una scelta che l'operatore non ha fatto.
+///
+/// Quindi l'avviso c'è, in **due** canali e per la stessa ragione: stderr per
+/// l'umano che ha lanciato il comando e non legge il JSON, `avvisi` nel
+/// referto per l'agente che legge solo stdout. Esce **zero**: la scansione è
+/// riuscita e l'avviso non è un rifiuto — un avviso che cambiasse il codice
+/// di uscita renderebbe `verify` non idempotente per chi lo chiude in uno
+/// script, e un atto già avvenuto non si ripete per far rumore.
+///
+/// L'avviso si scrive **prima** di aprire il database: se la scansione poi
+/// si ferma a metà, l'attribuzione a `person_0000` è già avvenuta e il
+/// referto del fallimento è `{}`.
+fn verifica(args: &[String], err: &mut dyn std::io::Write) -> Result<serde_json::Value> {
     let o = Opzioni::analizza(args)?;
     let radice = o
         .posizionali
         .first()
         .map(PathBuf::from)
         .ok_or_else(|| Error::Uso("manca la radice del corpus".into()))?;
-    let by = o
-        .una("person")?
-        .map(|s| PersonId(s.to_string()))
+    let dichiarata = o.una("person")?.map(|s| PersonId(s.to_string()));
+    let mut avvisi: Vec<Avviso> = Vec::new();
+    let by = dichiarata
+        .clone()
         .unwrap_or_else(|| PersonId(PERSONA_SISTEMA.to_string()));
+    if dichiarata.is_none() {
+        let a = avviso_persona_predefinita(&by);
+        let _ = writeln!(err, "kbs: avviso: {} [{}]", a.message, a.code);
+        avvisi.push(a);
+    }
     let mut store = apri(&o)?;
     registra_persona(&mut store, &by)?;
-    Ok(serde_json::to_value(scan::indexa(&mut store, &radice, &by)?.report)?)
+    let mut referto = serde_json::to_value(scan::indexa(&mut store, &radice, &by)?.report)?;
+    // `avvisi` c'è anche quando è vuoto: un campo che non c'è non dice «zero»,
+    // dice «non lo so», ed è la stessa ragione per cui `scan::Report`
+    // dichiara `instances` invece di ometterlo.
+    if let Some(obj) = referto.as_object_mut() {
+        obj.insert("avvisi".into(), serde_json::to_value(avvisi)?);
+    }
+    Ok(referto)
+}
+
+/// Un avviso del verbo: una cosa che è successa e che nessuno ha chiesto.
+///
+/// La forma è quella di [`Errore`] — `code` e `message` — perché un agente
+/// che legge `persona-non-dichiarata` sa che cosa è successo senza fare
+/// parsing di un messaggio in italiano, e la stessa lingua serve per un
+/// rifiuto e per un avviso. `persona` è un campo e non parte della frase
+/// perché qui il **numero** è il fatto: l'avviso dice «tutto quello che hai
+/// indicizzato è di `person_0000`», e un agente deve poterlo ripetere senza
+/// leggerlo in italiano.
+#[derive(Debug, Clone, Serialize)]
+struct Avviso {
+    code: &'static str,
+    persona: String,
+    message: String,
+}
+
+/// L'avviso che `verify` scrive quando nessuno ha dichiarato `--person`.
+fn avviso_persona_predefinita(by: &PersonId) -> Avviso {
+    Avviso {
+        code: "persona-non-dichiarata",
+        persona: by.0.clone(),
+        message: format!(
+            "`verify` senza `--person` scrive ogni argomento con origin_by={p}, che è \
+             un'identità scritta nel codice e dichiarabile da chiunque: il predicato apre \
+             su `is_author` prima che sulle relazioni, quindi chi si dichiara con quel \
+             numero vede tutto quello che è stato indicizzato. Ripeti il comando con \
+             `--person <id>` se l'indicizzazione è tua.",
+            p = by.0
+        ),
+    }
 }
 
 /// D10. Il lock. Stampa i byte canonici **e** il lock, perché un lock senza i
@@ -882,9 +982,11 @@ fn leggi(args: &[String]) -> Result<serde_json::Value> {
 ///   delle altre strade è utilizzabile.
 /// * **non è un ruolo**: `teaches` è una relazione in una tabella di relazioni,
 ///   non una colonna su `people`. D5 resta quello che è.
-/// * **non chiude relazioni**: `Store::end_relation` esiste e questa CLI non lo
-///   espone. Un verbo che finisce un incarico è un'altra domanda, e rispondere
-///   a mezza fa più danno di non rispondere.
+/// * **non chiude relazioni**: chiude `kbs termina`, che è un altro atto.
+///   Aprire un incarico e chiuderlo sono due domande con due date e due
+///   provenienze, e rispondere alle due con un solo verbo direbbe a chi
+///   rilegge quale delle due è avvenuta solo se il secondo esito non fosse
+///   mai raggiungibile.
 fn insegna(args: &[String]) -> Result<serde_json::Value> {
     let o = Opzioni::analizza(args)?;
     let by = persona(&o, "person")?;
@@ -945,6 +1047,116 @@ fn insegna_relazione(
         "since": since.0,
         "recorded": !gia_insegna,
         "already": gia_insegna,
+    }))
+}
+
+/// `kbs termina` — l'incarico che finisce (`V9`).
+///
+/// # Il buco che chiude
+///
+/// `Store::end_relation` esisteva, era testata, e non aveva **nessun
+/// chiamante di produzione**: `relations` era una tabella che si apriva e non
+/// si chiudeva mai. Un docente che lasciava il corso restava `teaches` per
+/// sempre — e quel diritto non aveva via d'uscita dal prodotto: bastava
+/// dichiarare `--person` e `--docente` con lo stesso nome per rientrare nel
+/// corso di un anno prima, per l'intera durata del database.
+///
+/// # Perché scrive `ended_by` e non riusa `recorded_by`
+///
+/// `until` dice **quando** l'incarico è finito e non dice **chi** l'ha
+/// finito. Le due colonne sono due fatti: `recorded_by` è la persona che ha
+/// aperto l'incarico (`V8`), `ended_by` è quella che l'ha chiuso (`V9`).
+/// Scrivere lo stesso nome due volte sarebbe la firma di un atto che non è
+/// avvenuto, e in un registro la firma sbagliata è peggio della firma
+/// assente: l'assente dice `NULL` e `NULL` vuol dire «non registrato».
+///
+/// `--person` è l'operatore che registra l'atto, `--docente` è la persona
+/// che smette: le due domande sono distinte per la stessa ragione di
+/// `kbs insegna`, e sono distinte anche perché il docente che se n'è andato
+/// non è quasi mai l'operatore che lo registra.
+///
+/// # Perché solo `teaches`
+///
+/// `end_relation` chiude anche `enrolled_in`, e qui non c'è un `--relation`
+/// che lo scelga: il prodotto non ha un verbo che **apra** un'iscrizione
+/// (`kbs iscrivi` non esiste, ed è dichiarato in `CHANGELOG`), quindi non
+/// c'è niente che questo verbo possa chiudere. Un verbo che chiude una
+/// relazione che nessun altro verbo apre è una strada che porta nel vuoto, e
+/// `--relation` con due valori sarebbe un modo di chiedere all'operatore una
+/// scelta che il prodotto non gli ha mai dato.
+///
+/// # Perché è idempotente, e perché «mai esistito» è un'altra risposta
+///
+/// Un incarico **già finito** non viene riscritto e non viene negato: il
+/// risultato dice `recorded: false, already: true`, come fa `kbs insegna`
+/// quando la relazione è già aperta. Un incarico che **non è mai esistito** è
+/// un rifiuto (`relazione-assente`, codice 2), perché `already: true` a chi
+/// non ha mai insegnato sarebbe una risposta falsa. Le due domande sono
+/// distinte da [`Store::stato_relazione`], che conta le righe e dice quante
+/// sono aperte: senza quel numero la sola risposta possibile sarebbe una
+/// delle due, e quella sbagliata.
+///
+/// E un `--at` **prima** dell'inizio è un terzo rifiuto
+/// (`relazione-indietro`), non un incidente: la regola è quella di `V2` —
+/// `until >= since` — e un verbo che la lascia al vincolo rispondere `store`
+/// farebbe di una data sbagliata un guasto di sistema.
+///
+/// # Perché solo in CLI locale
+///
+/// Come [`insegna`] e [`autora`], e per la ragione che `kbs_server::identity`
+/// dichiara: su HTTP e su MCP l'identità è *dichiarata*. Qui la differenza è
+/// che chiudere non concede un diritto ma **toglie** uno, e una strada che
+/// toglie diritti su un'identità dichiarata è il modo più semplice che ha
+/// chiunque raggiunga la porta per lasciare fuori un docente dal proprio
+/// corso. In CLI locale chi esegue il comando ha già il file del database in
+/// tasca: il confine è il filesystem, ed è dichiarato.
+fn termina(args: &[String]) -> Result<serde_json::Value> {
+    let o = Opzioni::analizza(args)?;
+    let by = persona(&o, "person")?;
+    let mut store = apri(&o)?;
+    // L'operatore entra nel registro perché `ended_by` lo richiama: una
+    // provenienza che punta a una persona inesistente è una riga che il
+    // vincolo rifiuta. Il **docente** no, per la ragione di sempre.
+    registra_persona(&mut store, &by)?;
+    let corso = CourseId(o.richiesta("course")?.to_string());
+    let docente = persona_presente(&store, &persona(&o, "docente")?, "docente")?;
+    if store.source_status(&corso)?.is_none() {
+        return Err(Error::CorsoAssente { id: corso.0.clone() });
+    }
+    let stato = store.stato_relazione(&docente, &corso, Relation::Teaches)?;
+    if stato.righe == 0 {
+        return Err(Error::RelazioneAssente {
+            persona: docente.0.clone(),
+            corso: corso.0.clone(),
+        });
+    }
+    let quando = at(&o);
+    let chiuso_ora = stato.aperte > 0;
+    // La regola è dello schema (`V2`: `until >= since`) e qui viene detta con
+    // le parole della regola. Il vincolo l'avrebbe comunque rifiutata, ma
+    // l'avrebbe detto come `store` — «il sistema non ha potuto rispondere» —
+    // per una richiesta che è solo sbagliata, e un codice 4 su un `--at` fuori
+    // posto è un falso incidente.
+    if chiuso_ora {
+        if let Some(da) = stato.aperta_da {
+            if quando.0 < da.0 {
+                return Err(Error::RelazioneIndietro { at: quando.0, since: da.0 });
+            }
+        }
+        store.end_relation(&docente, &corso, Relation::Teaches, quando, &by)?;
+    }
+    Ok(serde_json::json!({
+        "course": corso.0,
+        "relation": "teaches",
+        "docente": docente.0,
+        "registrato_da": by.0,
+        // La data che vale **adesso**: quella appena scritta, o — quando
+        // l'incarico era già finito — quella che c'era. Un `until` che
+        // cambiava a ogni esecuzione direbbe che l'incarico è finito tutte le
+        // volte che il comando viene ripetuto.
+        "until": if chiuso_ora { Some(quando.0) } else { stato.fino_a.map(|t| t.0) },
+        "recorded": chiuso_ora,
+        "already": !chiuso_ora,
     }))
 }
 
@@ -1244,7 +1456,7 @@ fn ciclo(args: &[String]) -> Esito {
             r.non_promossi.push(NonPromosso {
                 rel_path: rel,
                 codice: "archiviato".into(),
-                motivo: "l'argomento è archiviato e questa CLI non ha la strada che lo riapre: `Store::end_relation` e l'inverso di `archive` non sono esposti".into(),
+                motivo: "l'argomento è archiviato e questa CLI non ha la strada che lo riapre: l'inverso di `archive` non è esposto".into(),
             });
             continue;
         }

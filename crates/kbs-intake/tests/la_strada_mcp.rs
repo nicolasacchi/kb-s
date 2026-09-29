@@ -247,7 +247,17 @@ fn questa_strada_non_scrive_relazioni_e_il_verbo_insegna_non_e_un_metodo() {
     // relazioni sarebbe la definizione di `teaches` in `kbs_core::may_read`, e
     // chiunque potrebbe pronunciarlo. Percio' la domanda non e' «funziona?» ma
     // «esiste?», e la risposta e' no — per entrambe le forme del nome.
-    for metodo in ["insegna", "kbs/insegna", "kbs/teaches", "kbs/relazione"] {
+    // `termina` e' nella stessa lista per la ragione opposta e piu' forte: non
+    // concede un diritto, lo **toglie**, e una strada che toglie diritti su
+    // un'identita' dichiarata lascia fuori un docente dal proprio corso.
+    for metodo in [
+        "insegna",
+        "kbs/insegna",
+        "kbs/teaches",
+        "kbs/relazione",
+        "termina",
+        "kbs/termina",
+    ] {
         let mut store = store_con_corso();
         let r = chiara(
             &mut store,

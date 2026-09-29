@@ -30,7 +30,7 @@ use rusqlite::{types::Type, Connection, OptionalExtension, Row, ToSql};
 
 use crate::codec;
 use crate::error::{Error, Result};
-use crate::types::{CourseRelation, Person, Source, SourceStatus};
+use crate::types::{CourseRelation, Person, Source, SourceStatus, StatoRelazione};
 use crate::schema;
 
 /// Le colonne di un argomento, più il lock per la provenienza generata.
@@ -216,19 +216,40 @@ impl Store {
         Ok(())
     }
 
-    /// Chiude un'iscrizione o un incarico a una data. `until IS NULL` è
-    /// l'iscrizione in corso.
+    /// Chiude un'iscrizione o un incarico a una data, e **chi lo ha chiuso**.
+    ///
+    /// `until IS NULL` è l'iscrizione in corso, e una riga già chiusa non si
+    /// richiude: la `WHERE` è quella che c'era, e tornare a zero righe è un
+    /// [`Error::NotFound`] invece di una seconda scrittura sopra la prima.
+    ///
+    /// # Perché anche la fine ha un `registrato_da`
+    ///
+    /// Per la ragione che `V8` dichiara per `add_relation`, e la ragione vale
+    /// in entrambe le direzioni: `until` dice **quando** l'incarico è finito e
+    /// non dice **chi** l'ha finito. Una relazione chiusa dalla persona che se
+    /// n'è andata e una chiusa dalla segreteria sono la stessa riga, che è la
+    /// risposta giusta a «che cosa è cambiato» e quella sbagliata a «chi ha
+    /// premuto». Il parametro è `&PersonId` e non `Option` per la stessa
+    /// ragione di `add_relation`: la firma lo rende dichiarabile a chi la
+    /// tocca per prima, e il `NULL` che la colonna accetta è raggiungibile solo
+    /// dalle righe chiuse prima di `V9` e da SQL scritto a mano.
+    ///
+    /// La colonna è `ended_by` e non `recorded_by`: `recorded_by` è chi ha
+    /// scritto la riga, e la riga l'ha scritta chi l'ha aperta. Riempire la
+    /// stessa colonna due volte direbbe che la persona che ha aperto
+    /// l'incarico lo ha anche chiuso, che è falso quasi sempre.
     pub fn end_relation(
         &mut self,
         person: &PersonId,
         course: &CourseId,
         relation: Relation,
         at: kbs_core::Millis,
+        registrato_da: &PersonId,
     ) -> Result<usize> {
         let n = self.conn.execute(
-            "UPDATE relations SET until = ?4 \
+            "UPDATE relations SET until = ?4, ended_by = ?5 \
              WHERE person_id = ?1 AND course_id = ?2 AND relation = ?3 AND until IS NULL",
-            rusqlite::params![person.0, course.0, relation_to_db(relation), at.0],
+            rusqlite::params![person.0, course.0, relation_to_db(relation), at.0, registrato_da.0],
         )?;
         if n == 0 {
             return Err(Error::NotFound {
@@ -237,6 +258,53 @@ impl Store {
             });
         }
         Ok(n)
+    }
+
+    /// Quante righe dicono che `person` ha avuto `relation` su `course`, quante
+    /// sono ancora aperte, quando è finito l'ultimo incarico e da quando è
+    /// aperto quello di adesso.
+    ///
+    /// Non è `relations_of`: quello risponde «adesso che cosa vale?», e una
+    /// relazione chiusa ieri non c'è più per quel predicato. Chi chiude un
+    /// incarico ha bisogno dell'altra domanda — «è mai esistito?» — perché la
+    /// risposta cambia il codice di uscita: a chi non ha mai insegnato si
+    /// risponde che non c'è, a chi l'ha già finito si risponde che è già
+    /// finito, e confondere le due è mentire in una delle due direzioni.
+    ///
+    /// Le righe sono contate, non elencate: la relazione che il chiamante
+    /// vuole chiudere è una, e una risposta con dentro i nomi di tutti i
+    /// periodi che una persona ha insegnato un corso sarebbe un elenco di
+    /// fatti che il predicato non ha chiesto.
+    ///
+    /// `fino_a` e `aperta_da` sono le due date che servono a **non scrivere
+    /// una frase falsa**: chi chiude riporta la data che sta per scrivere,
+    /// chi trova l'incarico già finito riporta quella che c'è, e nessuno dei
+    /// due può chiudere a una data anteriore all'inizio perché `V2` lo
+    /// vieta — una risposta che arrivasse dal vincolo sarebbe `store`, cioè
+    /// «il sistema non ha potuto rispondere», per una richiesta che è solo
+    /// sbagliata.
+    pub fn stato_relazione(
+        &self,
+        person: &PersonId,
+        course: &CourseId,
+        relation: Relation,
+    ) -> Result<StatoRelazione> {
+        let (righe, aperte, fino_a, aperta_da): (i64, i64, Option<i64>, Option<i64>) =
+            self.conn.query_row(
+                "SELECT COUNT(*), \
+                        COALESCE(SUM(CASE WHEN until IS NULL THEN 1 ELSE 0 END), 0), \
+                        MAX(until), \
+                        MIN(CASE WHEN until IS NULL THEN since END) \
+                 FROM relations WHERE person_id = ?1 AND course_id = ?2 AND relation = ?3",
+                rusqlite::params![person.0, course.0, relation_to_db(relation)],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )?;
+        Ok(StatoRelazione {
+            righe: righe as usize,
+            aperte: aperte as usize,
+            fino_a: fino_a.map(kbs_core::Millis),
+            aperta_da: aperta_da.map(kbs_core::Millis),
+        })
     }
 
     /// Le relazioni **di corso** che una persona ha verso un corso adesso.

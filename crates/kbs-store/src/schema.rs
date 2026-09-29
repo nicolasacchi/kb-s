@@ -196,7 +196,7 @@ mod unit {
         // test è rosso — che è il comportamento voluto.
         let mut ordinata = versions.clone();
         ordinata.sort_unstable();
-        assert_eq!(ordinata, vec![1, 2, 3, 4, 5, 6, 7, 8]);
-        assert_eq!(binary_epoch(), 8);
+        assert_eq!(ordinata, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(binary_epoch(), 9);
     }
 }

@@ -74,6 +74,12 @@ come protocollo», e perché un banco agganciato alle funzioni interne si rompe 
 ogni rifattorizzazione di un crate che non lo riguarda. La forma esatta del
 JSON che il banco si aspetta è documentata in `kbs_fixtures::adapter`.
 
+Quel `verify` del banco non porta `--person`, ed è l'unico caso in cui il
+default `person_0000` è un **contratto dichiarato**
+(`kbs_fixtures::spec::OPERATORE`): il comando lo dice lo stesso, su stderr e
+in `avvisi` nel referto. Le righe qui sotto portano `--person` perché quelle
+sono le forme di un operatore, non quella del banco.
+
 **Il banco esegue una sequenza di atti, non un comando solo**, perché la
 citabilità di D4 non si può osservare da una cartella: una pipeline che
 indicizza non firma niente, e la ratifica è un atto separato, di una persona.
@@ -116,7 +122,7 @@ e il fatto che **l'identità è una dichiarazione**.
 kbs-serve 0.1.0
   ascolto     http://127.0.0.1:8787
   corpus      crates/kbs-fixtures/corpus
-  database    /tmp/kb-s.sqlite3 (epoch 5; questo binario ne conosce 5)
+  database    /tmp/kb-s.sqlite3 (epoch 9; questo binario ne conosce 9)
   identita'   una DICHIARAZIONE, non un'autenticazione: chiunque raggiunga
               questa porta puo' dichiarare chi e' con X-Kbs-Person o ?person=.
               Il predicato D5 protegge il materiale, non la persona.
@@ -138,7 +144,8 @@ Per vedere materiale, il database lo deve costruire `kbs`:
 
 ```sh
 ./kc build -p kbs-intake --bin kbs
-./target/debug/kbs verify --db /tmp/kb-s.sqlite3 crates/kbs-fixtures/corpus
+./target/debug/kbs verify --db /tmp/kb-s.sqlite3 --person person_0001 \
+    crates/kbs-fixtures/corpus
 ./target/debug/kbs-serve --corpus crates/kbs-fixtures/corpus --db /tmp/kb-s.sqlite3
 ```
 
@@ -148,15 +155,20 @@ D5 è già valido durante la stesura, ed è per quello che la coda di ratifica n
 espone nulla a chi non insegna. Diventa materiale del corso con
 `kbs ratify` e poi `kbs promote`, che sono atti separati e firmati da una
 persona (D4): un banco che indicizza non promote niente, e questo è il punto.
-`--person` dichiara chi agisce, e chi non dichiara niente non vede niente.
+`--person` dichiara chi agisce, e chi non dichiara niente non vede niente: con
+una eccezione, dichiarata subito sotto.
 
-`verify` però **non crea relazioni**: indicizza e basta, e chi lo esegue senza
-`--person` è `person_0000`, che diventa l'`origin_by` di tutto quello che ha
-indicizzato. L'operatore che ha scritto un argomento lo rivede — il predicato
-apre a `is_author` prima di guardare le relazioni — ma **un docente che
-insegnasse lo stesso corso non vede niente**, e senza `teaches` restano chiusi
-l'esercizio, lo scrutinio e l'export. La relazione si registra con un verbo, e
-il verbo è dichiarato qui per nome:
+`verify` però **non crea relazioni**: indicizza e basta, e `--person` è chi
+indicizza. Senza quell'opzione il comando scrive come `person_0000` — una
+stringa scritta nel codice che diventa l'`origin_by` di tutto quello che
+entra, e che chiunque può dichiarare come propria: il predicato apre a
+`is_author` prima di guardare le relazioni, quindi quella persona vede tutto
+ciò che ha indicizzato. Il default esiste perché il banco lo dichiara come
+parte del suo contratto (`kbs_fixtures::spec::OPERATORE`), ma **non è
+silenzioso**: quando manca `--person`, il comando scrive un avviso su stderr
+e mette `avvisi` nel referto, e l'avviso nomina la persona, che cosa diventa e
+chi la può vedere. La riga qui sopra porta `--person` per quello: chi copia
+questa riga non eredita l'identità di nessuno.
 
 ```sh
 ./target/debug/kbs insegna --db /tmp/kb-s.sqlite3 \
@@ -169,9 +181,28 @@ seconda è la provenienza di un atto (`relations.recorded_by`). Il verbo scrive
 `teaches` e nient'altro, ed è **solo** della CLI locale: sull'HTTP e sull'MCP
 l'identità è dichiarata (`x-kbs-person`), e un metodo che concedesse diritti su
 quel trasporto sarebbe la definizione letterale di `teaches` in
-`kbs_core::may_read`. Non chiude relazioni — `Store::end_relation` esiste e questa
-CLI non lo espone — e non crea persone: il registro delle persone è della
-scuola.
+`kbs_core::may_read`. Non crea persone: il registro delle persone è della
+scuola. E non chiude relazioni: chiude `kbs termina`, che è un altro atto e ha
+un altro nome.
+
+```sh
+./target/debug/kbs termina --db /tmp/kb-s.sqlite3 \
+    --person person_0001 --course matematica-seconda --docente person_0001
+```
+
+Un docente che lascia il corso resta `teaches` per sempre senza quel verbo: era
+una relazione che il prodotto apriva e non chiudeva mai, e quel diritto non
+aveva via d'uscita. `termina` scrive `until` e **chi l'ha chiuso**
+(`relations.ended_by`), che è un fatto diverso da chi l'ha aperto
+(`relations.recorded_by`): sono due colonne perché sono due atti. Da quel
+momento `teaches` non apre più niente per quella persona, e il predicato D5 fa
+il resto. Come `insegna` è **solo** della CLI locale, e su quel trasporto la
+ragione è più forte: dichiarare un'identità per **togliere** un diritto
+significherebbe che chiunque raggiunga la porta può lasciare fuori un docente
+dal proprio corso. Il verbo è idempotente e dice quale delle due cose è
+successa (`recorded`, `already`); un incarico che non è mai esistito è un
+rifiuto (`relazione-assente`), perché `already` a chi non ha mai insegnato
+sarebbe una risposta falsa.
 
 `Ctrl-C` chiude: le richieste già ricevute finiscono, il listener chiude subito,
 e il processo esce con `0`.
@@ -368,6 +399,9 @@ il file: una correzione che cambia il test deve essere rumorosa, non silenziosa.
 | Indicizzare, dichiarare chi insegna, ratificare e promuovere sono **un comando**, e l'argomento firmato è citabile | `il_ciclo_completo::il_ciclo_indicizza_insegna_ratifica_e_promuove` | dimostrata |
 | Un percorso che non ha promosso tutto esce non zero e nomina il file che non è passato | `il_ciclo_completo::un_file_che_non_si_puo_promuovere_non_finisce_finito_e_il_referto_lo_dice` | dimostrata |
 | Il percorso completo non duplica relazioni né righe, e la seconda esecuzione lo dichiara | `il_ciclo_completo::due_esecuzioni_sullo_stesso_corpus_non_doppiano_nulla` | dimostrata |
+| Chi indicizza senza dichiarare persona riceve un avviso che nomina l'identità che verrà usata | `la_cli::verify_senza_persona_lo_dice_su_stderr_e_nel_referto` | dimostrata |
+| Un docente che lascia il corso non è più `teaches`, e la fine dice chi l'ha chiusa | `la_cli::l_incarico_che_finisce_non_apre_piu_niente_e_dice_chi_l_ha_chiuso` | dimostrata |
+| Un incarico già finito e un incarico mai esistito danno due risposte diverse | `la_cli::un_incarico_già_finto_e_un_incarico_che_non_c_e_dicono_cose_diverse` | dimostrata |
 | Il ciclo completo non produce le istanze degli esercizi, e il referto lo dichiara | — | non dimostrata: nessun codice le produce, e `kbs autora` è l'unico percorso che le scrive |
 | La catena di hash copre le osservazioni e ha una consistency proof | — | non dimostrata: non c'è codice, e `D6` la dichiara come limite dichiarato |
 | Un accesso applica il predicato di visibilità | — | non dimostrata: il predicato esiste ed è testato, nessun accesso passa attraverso di esso |
